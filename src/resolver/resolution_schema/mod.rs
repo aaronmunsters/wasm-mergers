@@ -1,0 +1,313 @@
+use derive_more::{From, Into};
+use std::collections::{HashMap, HashSet};
+
+use super::error::Error;
+use super::{
+    FunctionExportSpecification, FunctionImportSpecification, FunctionName, FunctionSpecification,
+    ResolutionSchema, Resolved,
+};
+
+// TODO: should become function index?
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, From, Into)]
+pub(crate) struct BeforeFunctionIndex {
+    pub(crate) index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NameResolved {
+    /// The exported function
+    export_specification: FunctionExportSpecification<BeforeFunctionIndex>,
+    /// The imported functions with which the exported is resolved by namespace
+    resolved_imports: HashSet<FunctionImportSpecification<BeforeFunctionIndex>>,
+}
+
+enum FunctionResolveResult {
+    NoImportPresent(FunctionExportSpecification<BeforeFunctionIndex>),
+    AllImportsResolve(Resolved<BeforeFunctionIndex>),
+    AllImportsMismatch(TypeMismatch),
+    PartialResolvePartialMismatch {
+        resolve: Resolved<BeforeFunctionIndex>,
+        mismatch: TypeMismatch,
+    },
+}
+
+impl NameResolved {
+    /// Attempting to resolve can result in different cases
+    /// None, None => No import was present
+    /// Some, None => All imports resolve successfully
+    /// None, Some => All imports fail to match types
+    /// Some, Some => Some success resolves, some type-fail
+    fn attempt_resolve(self) -> FunctionResolveResult {
+        let Self {
+            export_specification,
+            resolved_imports,
+        } = self;
+
+        let mut imports_type_matching = vec![];
+        let mut imports_type_mismatch = vec![];
+
+        for import in resolved_imports.into_iter() {
+            if import.ty.eq(&export_specification.ty) {
+                // Types match
+                imports_type_matching.push(import);
+            } else {
+                // Types do not match
+                imports_type_mismatch.push(import);
+            }
+        }
+
+        let resolved = if imports_type_matching.is_empty() {
+            None
+        } else {
+            Some(Resolved {
+                export_specification: export_specification.clone(),
+                resolved_imports: imports_type_matching,
+            })
+        };
+        let mismatch = if imports_type_mismatch.is_empty() {
+            None
+        } else {
+            Some(TypeMismatch {
+                export_specification: export_specification.clone(),
+                resolved_imports: imports_type_mismatch,
+            })
+        };
+
+        match (resolved, mismatch) {
+            (None, None) => FunctionResolveResult::NoImportPresent(export_specification),
+            (None, Some(mismatch)) => FunctionResolveResult::AllImportsMismatch(mismatch),
+            (Some(resolve), None) => FunctionResolveResult::AllImportsResolve(resolve),
+            (Some(resolve), Some(mismatch)) => {
+                FunctionResolveResult::PartialResolvePartialMismatch { resolve, mismatch }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+struct TypeMismatch {
+    /// The exported function
+    export_specification: FunctionExportSpecification<BeforeFunctionIndex>,
+    /// The imported functions with which the exported is resolved but mismatches in type
+    resolved_imports: Vec<FunctionImportSpecification<BeforeFunctionIndex>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationFailure {
+    /// Types Mismatch
+    ///
+    /// Eg.
+    /// ```wat
+    /// (module "A" (export "f" (result i32)))
+    /// (module "B" (import "A" "f" (result i64)))
+    /// (module "C" (import "A" "f" (result f64)))
+    /// ```
+    /// Would result in a `HashSet { A:f:i32 -> { B:f:i64, C:f:f64 } }`.
+    types_mismatch: HashSet<TypeMismatch>,
+
+    /// Name Clashes
+    ///
+    /// Eg.
+    /// ```wat
+    /// (module "A" (export "f")) ;; (a)
+    /// (module "B" (export "f")) ;; (b)
+    /// ;; ==>
+    /// (module "M" (export "f")) ;; (a) or (b) ?
+    /// ```
+    ///
+    /// If no other module imports "f", then M
+    /// Would result in a `HashMap { "f" -> { A:f, B:f } }`.
+    name_clashes: HashMap<FunctionName, HashSet<FunctionExportSpecification<BeforeFunctionIndex>>>,
+
+    /// Part of the resolution that was a success.
+    resolved_schema: ResolutionSchema<BeforeFunctionIndex>,
+}
+
+#[derive(Debug, PartialEq, Eq, Default, Clone)]
+pub struct ResolutionSchemaBuilder {
+    provided_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>>,
+    function_specifications: HashSet<FunctionSpecification<BeforeFunctionIndex>>,
+    expected_imports: HashSet<FunctionImportSpecification<BeforeFunctionIndex>>,
+}
+
+impl ResolutionSchemaBuilder {
+    pub(crate) fn add_import(
+        &mut self,
+        specification: FunctionImportSpecification<BeforeFunctionIndex>,
+    ) -> Result<(), Error> {
+        if self.expected_imports.contains(&specification) {
+            Err(Error::DuplicateImportError)
+        } else {
+            assert!(self.expected_imports.insert(specification));
+            Ok(())
+        }
+    }
+
+    pub(crate) fn add_function(
+        &mut self,
+        specification: FunctionSpecification<BeforeFunctionIndex>,
+    ) {
+        assert!(self.function_specifications.insert(specification));
+    }
+
+    pub(crate) fn add_export(
+        &mut self,
+        specification: FunctionExportSpecification<BeforeFunctionIndex>,
+    ) -> Result<(), Error> {
+        if self.provided_exports.contains(&specification) {
+            Err(Error::DuplicateExportError)
+        } else {
+            assert!(self.provided_exports.insert(specification));
+            Ok(())
+        }
+    }
+
+    pub(crate) fn validate(
+        self,
+    ) -> Result<ResolutionSchema<BeforeFunctionIndex>, Box<ValidationFailure>> {
+        let Self {
+            provided_exports,
+            function_specifications,
+            expected_imports,
+        } = self;
+
+        let internal_function_specifications = function_specifications;
+
+        // Get all exported functions, 'prepare' this list to attempt linking
+        let mut potentially_resolved_exports =
+            provided_exports
+                .into_iter()
+                .map(|export_specification| NameResolved {
+                    export_specification,
+                    resolved_imports: Default::default(),
+                });
+
+        let mut unresolved_imports = HashSet::new();
+
+        // For each imported function, attempt to resolve it with an export based on naming
+        for import in expected_imports.into_iter() {
+            let resolved = potentially_resolved_exports.find(|export| {
+                export.export_specification.module == import.exporting_module
+                    && export.export_specification.name == import.name
+            });
+
+            match resolved {
+                Some(mut export) => {
+                    assert!(export.resolved_imports.insert(import));
+                }
+                None => {
+                    assert!(unresolved_imports.insert(import));
+                }
+            }
+        }
+
+        // At this point, provided_exports and expected_imports are consumed.
+        // We are left with potentially_resolved_exports and unresolved_imports
+
+        // We will now attempt to resolve & populate the resolved / unresolved
+        // datastructures
+
+        let mut unresolved_exports = vec![];
+
+        let mut types_mismatch = HashSet::new();
+        let mut resolved = HashSet::new();
+
+        // Iterate over
+        for export in potentially_resolved_exports {
+            match export.attempt_resolve() {
+                FunctionResolveResult::NoImportPresent(export_specification) => {
+                    unresolved_exports.push(export_specification)
+                }
+                FunctionResolveResult::AllImportsResolve(resolve) => {
+                    assert!(resolved.insert(resolve))
+                }
+                FunctionResolveResult::AllImportsMismatch(mismatch) => {
+                    assert!(types_mismatch.insert(mismatch));
+                }
+                FunctionResolveResult::PartialResolvePartialMismatch { resolve, mismatch } => {
+                    assert!(resolved.insert(resolve));
+                    assert!(types_mismatch.insert(mismatch));
+                }
+            }
+        }
+
+        // Split the unresolved exports into name clashes and single unresolved ones
+
+        // The names of exported functions
+        let mut export_names = HashMap::new();
+
+        // A mapping of functions names to clashing exports
+        let mut name_clashes = HashMap::new();
+
+        enum Encountered {
+            First(FunctionExportSpecification<BeforeFunctionIndex>),
+            Before,
+        }
+
+        for export in unresolved_exports {
+            let cloned_key = export.name.clone();
+            match export_names.remove(&export.name) {
+                Some(Encountered::First(earlier_export)) => {
+                    assert!(
+                        export_names
+                            .insert(cloned_key.clone(), Encountered::Before)
+                            .is_none()
+                    );
+                    assert!(
+                        name_clashes
+                            .insert(cloned_key, HashSet::from_iter(vec![earlier_export, export]))
+                            .is_none()
+                    );
+                }
+                Some(Encountered::Before) => {
+                    assert!(
+                        export_names
+                            .insert(cloned_key.clone(), Encountered::Before)
+                            .is_none()
+                    );
+                    name_clashes.entry(cloned_key).and_modify(
+                        |c: &mut HashSet<FunctionExportSpecification<BeforeFunctionIndex>>| {
+                            assert!(c.insert(export));
+                        },
+                    );
+                }
+                None => {
+                    assert!(
+                        export_names
+                            .insert(cloned_key, Encountered::First(export))
+                            .is_none()
+                    );
+                }
+            }
+        }
+
+        let unresolved_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>> =
+            export_names
+                .into_values()
+                .filter_map(|export| match export {
+                    Encountered::First(function_export_specification) => {
+                        Some(function_export_specification)
+                    }
+                    Encountered::Before => None,
+                })
+                .collect();
+
+        let resolved_schema = ResolutionSchema {
+            internal_function_specifications,
+            resolved,
+            unresolved_exports,
+            unresolved_imports,
+        };
+
+        if types_mismatch.is_empty() && name_clashes.is_empty() {
+            Ok(resolved_schema)
+        } else {
+            Err(ValidationFailure {
+                types_mismatch,
+                name_clashes,
+                resolved_schema,
+            }
+            .into())
+        }
+    }
+}
