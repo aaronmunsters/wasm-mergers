@@ -10,6 +10,7 @@ use crate::resolver::FunctionImportSpecification;
 use crate::resolver::FunctionSpecification;
 use crate::resolver::ModuleName;
 use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
+use crate::resolver::resolution_schema::BeforeFunctionIndex;
 use crate::resolver::resolution_schema::ResolutionSchemaBuilder;
 
 #[derive(Debug, Default)]
@@ -24,49 +25,37 @@ impl Resolver {
             module,
         } = module;
         let Module {
-            imports,
-            tables: _, // TODO:
-            types,
-            funcs,
-            globals: _,
-            locals: _, // TODO:
-            exports,
-            memories: _,  // TODO:
-            data: _,      // TODO:
-            elements: _,  // TODO:
-            start: _,     // TODO:
-            producers: _, // TODO:
-            customs: _,   // TODO:
-            debug: _,     // TODO:
-            name: _,      // TODO:
+            types: considering_types,
+            imports: considering_imports,
+            funcs: considering_funcs,
+            exports: considering_exports,
+            // FIXME: `tables`, `globals`, `memories` could be resolved too.
+            // Currently no support for.
             ..
         } = module;
 
         let mut covered_function_imports = HashSet::new();
 
-        for import in imports.iter() {
-            match &import.kind {
-                walrus::ImportKind::Function(id) => {
-                    let function_import_specification = FunctionImportSpecification {
-                        importing_module: (*considering_module).into(),
-                        exporting_module: (*import.module).into(),
-                        name: (*import.name).into(),
-                        ty: FuncType::from_types(funcs.get(*id).ty(), types),
-                        index: import.id().index().into(),
-                    };
-                    self.resolver
-                        .add_import(function_import_specification)
-                        .map_err(Error::Resolve)?;
-                    covered_function_imports.insert((id, import.id()));
-                }
-                walrus::ImportKind::Table(_id) => todo!(),
-                walrus::ImportKind::Memory(_id) => todo!(),
-                walrus::ImportKind::Global(_id) => todo!(),
+        for import in considering_imports.iter() {
+            if let walrus::ImportKind::Function(id) = &import.kind {
+                let before_index = BeforeFunctionIndex::from(id.index());
+                let function_import_specification = FunctionImportSpecification {
+                    importing_module: (*considering_module).into(),
+                    exporting_module: (*import.module).into(),
+                    name: (*import.name).into(),
+                    ty: FuncType::from_types(considering_funcs.get(*id).ty(), considering_types),
+                    index: before_index,
+                };
+                self.resolver.add_import(function_import_specification);
+                covered_function_imports.insert((id, import.id()));
+            } else {
+                // FIXME: `tables`, `globals`, `memories` could be resolved too.
+                // Currently no support for.
+                println!("Skipping `tables`, `globals`, `memories`")
             }
         }
 
-        // Consider functions
-        for function in funcs.iter() {
+        for function in considering_funcs.iter() {
             match &function.kind {
                 walrus::FunctionKind::Import(i) => {
                     debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)))
@@ -74,10 +63,10 @@ impl Resolver {
                 walrus::FunctionKind::Local(local_function) => {
                     let local = FunctionSpecification {
                         defining_module: (*considering_module).into(),
-                        ty: FuncType::from_types(local_function.ty(), types),
+                        ty: FuncType::from_types(local_function.ty(), considering_types),
                         index: function.id().index().into(),
                     };
-                    self.resolver.add_function(local);
+                    self.resolver.add_local_function(local);
                 }
                 walrus::FunctionKind::Uninitialized(_) => {
                     return Err(Error::ComponentModelUnsupported(
@@ -87,20 +76,19 @@ impl Resolver {
             }
         }
 
-        for export in exports.iter() {
-            match export.item {
-                walrus::ExportItem::Function(id) => {
-                    let export = FunctionExportSpecification {
-                        module: (*considering_module).into(),
-                        name: export.name.as_str().into(),
-                        ty: FuncType::from_types(funcs.get(id).ty(), types),
-                        index: export.id().index().into(),
-                    };
-                    self.resolver.add_export(export).map_err(Error::Resolve)?;
-                }
-                walrus::ExportItem::Table(_id) => todo!(),
-                walrus::ExportItem::Memory(_id) => todo!(),
-                walrus::ExportItem::Global(_id) => todo!(),
+        for export in considering_exports.iter() {
+            if let walrus::ExportItem::Function(id) = export.item {
+                let export = FunctionExportSpecification {
+                    module: (*considering_module).into(),
+                    name: export.name.as_str().into(),
+                    ty: FuncType::from_types(considering_funcs.get(id).ty(), considering_types),
+                    index: export.id().index().into(),
+                };
+                self.resolver.add_export(export);
+            } else {
+                // FIXME: `tables`, `globals`, `memories` could be resolved too.
+                // Currently no support for.
+                println!("Skipping merging for `tables`, `globals`, `memories`")
             }
         }
 

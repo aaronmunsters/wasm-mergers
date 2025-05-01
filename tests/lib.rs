@@ -5,6 +5,15 @@ use wat::parse_str;
 const WAT_ODD: &str = include_str!("odd.wat");
 const WAT_EVEN: &str = include_str!("even.wat");
 
+// A test would be to have a set of 10 or more modules
+// that have an interconnecting dependency.
+// Then go over all partitions of this collection
+// Per partition {Par}, let {Per} be a permutation of {Par}
+// for every per, let result be the fold of merging
+// test that all merges are correct
+// INPUT {a,b,c}
+// OUTPUT {({a,b,c}), ({a}, {b}, {c}), ({a, b}, {c}), ({a, c}, {b}), ({a}, {b, c})}
+
 #[test]
 fn merge_even_odd() {
     let wat_even = parse_str(WAT_EVEN).unwrap();

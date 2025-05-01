@@ -8,6 +8,12 @@ pub struct NamedModule<'a, M> {
     pub module: M,
 }
 
+impl<'a> NamedModule<'a, Vec<u8>> {
+    pub fn new(name: &'a str, module: Vec<u8>) -> Self {
+        Self { name, module }
+    }
+}
+
 /// A named module that points to a byte-buffer
 pub type NamedBufferModule<'a> = NamedModule<'a, &'a [u8]>;
 

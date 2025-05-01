@@ -1,7 +1,6 @@
 use derive_more::{From, Into};
 use std::collections::{HashMap, HashSet};
 
-use super::error::Error;
 use super::{
     FunctionExportSpecification, FunctionImportSpecification, FunctionName, FunctionSpecification,
     ResolutionSchema, Resolved,
@@ -125,53 +124,44 @@ pub struct ValidationFailure {
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct ResolutionSchemaBuilder {
-    provided_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>>,
-    function_specifications: HashSet<FunctionSpecification<BeforeFunctionIndex>>,
     expected_imports: HashSet<FunctionImportSpecification<BeforeFunctionIndex>>,
+    local_function_specifications: HashSet<FunctionSpecification<BeforeFunctionIndex>>,
+    provided_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>>,
 }
 
 impl ResolutionSchemaBuilder {
     pub(crate) fn add_import(
         &mut self,
         specification: FunctionImportSpecification<BeforeFunctionIndex>,
-    ) -> Result<(), Error> {
-        if self.expected_imports.contains(&specification) {
-            Err(Error::DuplicateImportError)
-        } else {
-            assert!(self.expected_imports.insert(specification));
-            Ok(())
-        }
+    ) {
+        let newly_inserted = self.expected_imports.insert(specification);
+        assert!(newly_inserted);
     }
 
-    pub(crate) fn add_function(
+    pub(crate) fn add_local_function(
         &mut self,
         specification: FunctionSpecification<BeforeFunctionIndex>,
     ) {
-        assert!(self.function_specifications.insert(specification));
+        let newly_inserted = self.local_function_specifications.insert(specification);
+        assert!(newly_inserted);
     }
 
     pub(crate) fn add_export(
         &mut self,
         specification: FunctionExportSpecification<BeforeFunctionIndex>,
-    ) -> Result<(), Error> {
-        if self.provided_exports.contains(&specification) {
-            Err(Error::DuplicateExportError)
-        } else {
-            assert!(self.provided_exports.insert(specification));
-            Ok(())
-        }
+    ) {
+        let newly_inserted = self.provided_exports.contains(&specification);
+        assert!(newly_inserted);
     }
 
     pub(crate) fn validate(
         self,
     ) -> Result<ResolutionSchema<BeforeFunctionIndex>, Box<ValidationFailure>> {
         let Self {
-            provided_exports,
-            function_specifications,
             expected_imports,
+            local_function_specifications,
+            provided_exports,
         } = self;
-
-        let internal_function_specifications = function_specifications;
 
         // Get all exported functions, 'prepare' this list to attempt linking
         let mut potentially_resolved_exports =
@@ -185,19 +175,16 @@ impl ResolutionSchemaBuilder {
         let mut unresolved_imports = HashSet::new();
 
         // For each imported function, attempt to resolve it with an export based on naming
-        for import in expected_imports.into_iter() {
-            let resolved = potentially_resolved_exports.find(|export| {
+        for import in expected_imports {
+            let target = |export: &NameResolved| {
                 export.export_specification.module == import.exporting_module
                     && export.export_specification.name == import.name
-            });
+            };
 
-            match resolved {
-                Some(mut export) => {
-                    assert!(export.resolved_imports.insert(import));
-                }
-                None => {
-                    assert!(unresolved_imports.insert(import));
-                }
+            if let Some(mut export) = potentially_resolved_exports.find(target) {
+                assert!(export.resolved_imports.insert(import));
+            } else {
+                assert!(unresolved_imports.insert(import));
             }
         }
 
@@ -245,27 +232,27 @@ impl ResolutionSchemaBuilder {
         }
 
         for export in unresolved_exports {
-            let cloned_key = export.name.clone();
+            let name = export.name.clone();
             match export_names.remove(&export.name) {
                 Some(Encountered::First(earlier_export)) => {
                     assert!(
                         export_names
-                            .insert(cloned_key.clone(), Encountered::Before)
+                            .insert(name.clone(), Encountered::Before)
                             .is_none()
                     );
                     assert!(
                         name_clashes
-                            .insert(cloned_key, HashSet::from_iter(vec![earlier_export, export]))
+                            .insert(name, HashSet::from_iter(vec![earlier_export, export]))
                             .is_none()
                     );
                 }
                 Some(Encountered::Before) => {
                     assert!(
                         export_names
-                            .insert(cloned_key.clone(), Encountered::Before)
+                            .insert(name.clone(), Encountered::Before)
                             .is_none()
                     );
-                    name_clashes.entry(cloned_key).and_modify(
+                    name_clashes.entry(name).and_modify(
                         |c: &mut HashSet<FunctionExportSpecification<BeforeFunctionIndex>>| {
                             assert!(c.insert(export));
                         },
@@ -274,7 +261,7 @@ impl ResolutionSchemaBuilder {
                 None => {
                     assert!(
                         export_names
-                            .insert(cloned_key, Encountered::First(export))
+                            .insert(name, Encountered::First(export))
                             .is_none()
                     );
                 }
@@ -284,16 +271,14 @@ impl ResolutionSchemaBuilder {
         let unresolved_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>> =
             export_names
                 .into_values()
-                .filter_map(|export| match export {
-                    Encountered::First(function_export_specification) => {
-                        Some(function_export_specification)
-                    }
+                .filter_map(|e| match e {
+                    Encountered::First(f) => Some(f),
                     Encountered::Before => None,
                 })
                 .collect();
 
         let resolved_schema = ResolutionSchema {
-            internal_function_specifications,
+            local_function_specifications,
             resolved,
             unresolved_exports,
             unresolved_imports,

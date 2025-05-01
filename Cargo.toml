@@ -10,5 +10,6 @@ walrus = { version = "0.23.3" }
 derive_more = { version = "2", features = ["from", "into", "from_str"] }
 
 [dev-dependencies]
-wasmtime = { version = "31.0.0" }
-wat = { version = "1.228.0" }
+wasmtime = { version = "32.0.0" }
+wat = { version = "1.229.0" }
+partitions = { version = "0.2" }

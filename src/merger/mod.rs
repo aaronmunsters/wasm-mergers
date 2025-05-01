@@ -12,6 +12,7 @@ use walrus::Table;
 use crate::error::Error;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::FuncType;
+use crate::resolver::FunctionImportSpecification;
 use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
 use crate::resolver::identified_resolution_schema::{MergedExport, MergedImport};
 
@@ -29,6 +30,38 @@ pub(crate) struct Merger {
 impl Merger {
     #[must_use]
     pub(crate) fn new(resolution_schema: OrderedResolutionSchema) -> Self {
+        let mut merged = Module::default();
+        /*
+        (mod
+            (imports)
+            (locals)
+        )
+        */
+        for import_specification in resolution_schema.get_unresolved_imports() {
+            let FunctionImportSpecification {
+                importing_module: _old_importing_module,
+                exporting_module,
+                name,
+                ty,
+                index: (before_index, after_index),
+            } = import_specification;
+            let _ = before_index;
+            let ty = merged.types.add(ty.params(), ty.results());
+            let (new_function_index, new_import_index) =
+                merged.add_import_func(&exporting_module.name, &name.name, ty);
+            let _ = new_import_index;
+            debug_assert_eq!(new_function_index.index(), after_index.index);
+        }
+
+        // for internal_specification in resolution_schema.get_internal_functions() {
+
+        // }
+
+        // resolution_schema.
+
+        // merged.add_import_func(module, name, ty)
+        // FunctionBuilder::new(types, params, results).finish(args, funcs);
+        // resolution_schema.get_indices(considering_module)
         Self {
             resolution_schema,
             merged: Module::default(),

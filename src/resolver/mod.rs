@@ -2,7 +2,6 @@ use derive_more::{From, FromStr, Into};
 use std::{collections::HashSet, hash::Hash, marker::PhantomData};
 use walrus::{TypeId, ValType};
 
-pub(crate) mod error;
 pub(crate) mod identified_resolution_schema; // TODO: enable / remove
 pub(crate) mod resolution_schema;
 
@@ -81,14 +80,14 @@ pub(crate) struct ResolutionSchema<Identifier>
 where
     Identifier: Hash + Eq, // The kind identification
 {
+    /// An imported function that could not be matched with an exported function
+    unresolved_imports: HashSet<FunctionImportSpecification<Identifier>>,
     /// The functions defined internally not exported nor imported
-    internal_function_specifications: HashSet<FunctionSpecification<Identifier>>,
+    local_function_specifications: HashSet<FunctionSpecification<Identifier>>,
     /// The resolved functions, where a single export is linked to the corresponding imports
     resolved: HashSet<Resolved<Identifier>>,
     /// An exported function that could not be matched with an imported function
     unresolved_exports: HashSet<FunctionExportSpecification<Identifier>>,
-    /// An imported function that could not be matched with an exported function
-    unresolved_imports: HashSet<FunctionImportSpecification<Identifier>>,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

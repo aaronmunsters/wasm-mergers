@@ -79,6 +79,47 @@ impl OrderedResolutionSchema {
         }
     }
 
+    pub(crate) fn get_unresolved_imports(
+        &self,
+    ) -> Vec<FunctionImportSpecification<ResolvedIndexMap>> {
+        self.unresolved_imports.to_vec()
+    }
+
+    #[allow(unused)] // TODO: remove this
+    pub(crate) fn get_internal_specifications(
+        &self,
+    ) -> Vec<FunctionSpecification<ResolvedIndexMap>> {
+        /*
+        (mod
+            (import "a" as 0)
+            (import "b" as 1)
+            (import "c" as 2)
+            (def 3 as "d" ...call-0...)
+            (def 4 as "e" ...call-1...))
+
+        (mod
+            (def 0 as "a" ...)
+            (def 1 as "a" ...)
+            (export "a" as 0)
+            (export "b" as 1))
+
+        (mod
+            (import "b" as 0)
+            (def 1 as "f" ...call-0...))
+
+        ==> Merged:
+
+        (mod
+            (def 0 as "a" ...)
+            (def 1 as "b" ...)
+            (import "c" as 2)
+            (def 3 as "d" ...call-0...)
+            (def 4 as "e ...call-1...)
+            (def 5 as "f" ...call-1...))
+        */
+        todo!()
+    }
+
     pub(crate) fn get_indices(
         &self,
         considering_module: &str,
@@ -134,6 +175,9 @@ impl ResolutionSchema<BeforeFunctionIndex> {
         unresolved_imports_from_module
     }
 
+    /// Remove resolved functions from the given module.
+    /// It is the exported functions from the given module
+    ///  that are returned here.
     fn remove_sorted_resolved(
         &mut self,
         module: &ModuleName,
@@ -156,7 +200,7 @@ impl ResolutionSchema<BeforeFunctionIndex> {
         module: &ModuleName,
     ) -> Vec<FunctionSpecification<BeforeFunctionIndex>> {
         let internal_function_specifications =
-            core::mem::take(&mut self.internal_function_specifications);
+            core::mem::take(&mut self.local_function_specifications);
         let (mut internal_function_specifications_from_module, internal_function_specifications): (
             Vec<_>,
             Vec<_>,
@@ -164,8 +208,7 @@ impl ResolutionSchema<BeforeFunctionIndex> {
             .into_iter()
             .partition(|i| i.defining_module == *module);
         internal_function_specifications_from_module.sort_by(|a, b| a.index.cmp(&b.index));
-        self.internal_function_specifications =
-            internal_function_specifications.into_iter().collect();
+        self.local_function_specifications = internal_function_specifications.into_iter().collect();
         internal_function_specifications_from_module
     }
 
