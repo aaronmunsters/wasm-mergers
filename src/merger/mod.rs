@@ -326,12 +326,25 @@ impl Merger {
                             // If it is resolved, another module will include it
                         }
                         MergedImport::Unresolved(import_spec) => {
+                            let FunctionImportSpecification {
+                                importing_module: ModuleName(importing_module_name),
+                                exporting_module: _,
+                                name: FunctionName(function_name),
+                                ty: _,
+                                index: _,
+                            } = import_spec;
+
                             // If it is unresolved, assert it was added in the merged output
-                            let _ = import_spec; // FIXME: unused?
-                            debug_assert!(
-                                self.mapping
+                            debug_assert_eq!(
+                                *self
+                                    .mapping
                                     .funcs
-                                    .contains_key(&(importing_module, Before(*before_id)))
+                                    .get(&(importing_module, Before(*before_id)))
+                                    .unwrap(),
+                                self.merged
+                                    .imports
+                                    .get_func(importing_module_name, function_name)
+                                    .unwrap()
                             );
                         }
                     }
@@ -413,7 +426,6 @@ impl Merger {
         for export in exports.iter() {
             match &export.item {
                 ExportItem::Function(before_id) => {
-                    let _ = before_id;
                     let exporting_module = considering_module_name.into();
                     let function_name = export.name.as_str().into();
                     match self
