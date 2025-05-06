@@ -1,8 +1,7 @@
-use std::collections::HashMap;
+use std::slice::Iter;
 
 use super::FunctionExportSpecification;
 use super::FunctionImportSpecification;
-use super::FunctionIndexYielder;
 use super::FunctionName;
 use super::FunctionSpecification;
 use super::ModuleName;
@@ -21,30 +20,27 @@ impl From<usize> for AfterFunctionIndex {
     }
 }
 
-pub(crate) type ResolvedIndexMap = (BeforeFunctionIndex, AfterFunctionIndex);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OrderedResolutionSchema {
     /// An imported function that could not be matched with an exported function
-    unresolved_imports: Vec<FunctionImportSpecification<ResolvedIndexMap>>,
+    unresolved_imports: Vec<FunctionImportSpecification<BeforeFunctionIndex>>,
     /// The resolved functions, where a single export is linked to the corresponding imports
-    resolved: Vec<Resolved<ResolvedIndexMap>>,
+    resolved: Vec<Resolved<BeforeFunctionIndex>>,
     /// The internally defined functions
-    internal: Vec<FunctionSpecification<(BeforeFunctionIndex, AfterFunctionIndex)>>,
+    local: Vec<FunctionSpecification<BeforeFunctionIndex>>,
     /// An exported function that could not be matched with an imported function
-    unresolved_exports: Vec<FunctionExportSpecification<ResolvedIndexMap>>,
-    /// A hashmap to determine function indices
-    old_to_new_function_resolver: HashMap<(ModuleName, BeforeFunctionIndex), AfterFunctionIndex>,
+    unresolved_exports: Vec<FunctionExportSpecification<BeforeFunctionIndex>>,
 }
 
 pub(crate) enum MergedImport {
     Resolved,
-    Unresolved(FunctionImportSpecification<ResolvedIndexMap>),
+    Unresolved(FunctionImportSpecification<BeforeFunctionIndex>),
 }
 
+#[derive(Debug)]
 pub(crate) enum MergedExport {
     Resolved,
-    Unresolved(FunctionExportSpecification<ResolvedIndexMap>),
+    Unresolved(FunctionExportSpecification<BeforeFunctionIndex>),
 }
 
 impl OrderedResolutionSchema {
@@ -79,82 +75,20 @@ impl OrderedResolutionSchema {
         }
     }
 
-    pub(crate) fn get_unresolved_imports(
+    pub(crate) fn unresolved_imports_iter(
         &self,
-    ) -> Vec<FunctionImportSpecification<ResolvedIndexMap>> {
-        self.unresolved_imports.to_vec()
+    ) -> Iter<'_, FunctionImportSpecification<BeforeFunctionIndex>> {
+        self.unresolved_imports.iter()
     }
 
-    #[allow(unused)] // TODO: remove this
-    pub(crate) fn get_internal_specifications(
+    pub(crate) fn get_local_specifications(
         &self,
-    ) -> Vec<FunctionSpecification<ResolvedIndexMap>> {
-        /*
-        (mod
-            (import "a" as 0)
-            (import "b" as 1)
-            (import "c" as 2)
-            (def 3 as "d" ...call-0...)
-            (def 4 as "e" ...call-1...))
-
-        (mod
-            (def 0 as "a" ...)
-            (def 1 as "a" ...)
-            (export "a" as 0)
-            (export "b" as 1))
-
-        (mod
-            (import "b" as 0)
-            (def 1 as "f" ...call-0...))
-
-        ==> Merged:
-
-        (mod
-            (def 0 as "a" ...)
-            (def 1 as "b" ...)
-            (import "c" as 2)
-            (def 3 as "d" ...call-0...)
-            (def 4 as "e ...call-1...)
-            (def 5 as "f" ...call-1...))
-        */
-        todo!()
+    ) -> Iter<'_, FunctionSpecification<BeforeFunctionIndex>> {
+        self.local.iter()
     }
 
-    pub(crate) fn get_indices(
-        &self,
-        considering_module: &str,
-    ) -> HashMap<BeforeFunctionIndex, AfterFunctionIndex> {
-        let Self {
-            unresolved_imports,
-            resolved,
-            internal,
-            ..
-        } = self;
-        // TODO: assert that the entire range is covered
-        // TODO: assert that the value is not yet inserted in the hashmap
-        // TODO: assert there are no holes anymore
-        let mut hashmap = HashMap::new();
-        for import in unresolved_imports {
-            if import.importing_module.name != considering_module {
-                continue;
-            }
-            let (before, after) = &import.index;
-            hashmap.insert(before.index.into(), after.index.into());
-        }
-        for resolved in resolved {
-            for import in &resolved.resolved_imports {
-                if import.importing_module.name != considering_module {
-                    continue;
-                }
-                let (before, after) = &import.index;
-                hashmap.insert(before.index.into(), after.index.into());
-            }
-        }
-        for internal in internal {
-            let (before, after) = &internal.index;
-            hashmap.insert(before.index.into(), after.index.into());
-        }
-        hashmap
+    pub(crate) fn resolved_iter(&self) -> Iter<'_, Resolved<BeforeFunctionIndex>> {
+        self.resolved.iter()
     }
 }
 
@@ -230,190 +164,35 @@ impl ResolutionSchema<BeforeFunctionIndex> {
         mut self,
         mut modules: &[ModuleName],
     ) -> OrderedResolutionSchema {
-        let mut yielder: FunctionIndexYielder<AfterFunctionIndex> =
-            FunctionIndexYielder::<AfterFunctionIndex>::new();
         let mut unresolved_imports = vec![];
         let mut resolved = vec![];
         let mut internal = vec![];
         let mut unresolved_exports = vec![];
-        let mut old_to_new_function_resolver = HashMap::new();
 
         while let Some((module, rest_modules)) = modules.split_first() {
             for module_unresolved_import in self.remove_sorted_unresolved_imports(module) {
                 unresolved_imports.push(module_unresolved_import);
             }
-            for module_resolved in self.remove_sorted_resolved(module) {
-                resolved.push(module_resolved)
-            }
+
             for module_internal in self.remove_internal(module) {
                 internal.push(module_internal)
             }
+
+            for module_resolved in self.remove_sorted_resolved(module) {
+                resolved.push(module_resolved)
+            }
+
             for module_resolved in self.remove_sorted_unresolved_exports(module) {
                 unresolved_exports.push(module_resolved)
             }
             modules = rest_modules;
         }
 
-        let unresolved_imports = unresolved_imports
-            .into_iter()
-            .map(|i| i.for_merged(&mut yielder, &mut old_to_new_function_resolver))
-            .collect();
-
-        let resolved: Vec<Resolved<(BeforeFunctionIndex, Option<AfterFunctionIndex>)>> = resolved
-            .into_iter()
-            .map(|r| r.first_pass(&mut yielder, &mut old_to_new_function_resolver))
-            .collect();
-
-        let resolved = resolved
-            .into_iter()
-            .map(|r| r.second_pass(&old_to_new_function_resolver))
-            .collect();
-
-        let internal = internal
-            .into_iter()
-            .map(|i| i.for_merged(&mut yielder, &mut old_to_new_function_resolver))
-            .collect();
-
-        let unresolved_exports = unresolved_exports
-            .into_iter()
-            .map(|e| e.for_merged(&old_to_new_function_resolver))
-            .collect();
-
         OrderedResolutionSchema {
             unresolved_imports,
             resolved,
-            internal,
+            local: internal,
             unresolved_exports,
-            old_to_new_function_resolver,
-        }
-    }
-}
-
-impl FunctionImportSpecification<BeforeFunctionIndex> {
-    fn for_merged(
-        self,
-        yielder: &mut FunctionIndexYielder<AfterFunctionIndex>,
-        old_to_new_function_resolver: &mut HashMap<
-            (ModuleName, BeforeFunctionIndex),
-            AfterFunctionIndex,
-        >,
-    ) -> FunctionImportSpecification<ResolvedIndexMap> {
-        let FunctionImportSpecification {
-            importing_module,
-            exporting_module,
-            name,
-            ty,
-            index,
-        } = self;
-        let new_index = yielder.give();
-        assert!(
-            old_to_new_function_resolver
-                .insert((importing_module.clone(), index.clone()), new_index.clone())
-                .is_none()
-        );
-        FunctionImportSpecification {
-            importing_module,
-            exporting_module,
-            name,
-            ty,
-            index: (index, new_index),
-        }
-    }
-}
-
-impl Resolved<BeforeFunctionIndex> {
-    pub(crate) fn first_pass(
-        self,
-        yielder: &mut FunctionIndexYielder<AfterFunctionIndex>,
-        old_to_new_function_resolver: &mut HashMap<
-            (ModuleName, BeforeFunctionIndex),
-            AfterFunctionIndex,
-        >,
-    ) -> Resolved<(BeforeFunctionIndex, Option<AfterFunctionIndex>)> {
-        let _ = yielder;
-        let _ = old_to_new_function_resolver;
-        let Resolved {
-            export_specification,
-            resolved_imports,
-        } = self;
-        let _ = export_specification;
-        let _ = resolved_imports;
-        // => These imports / exports are not present in the new binary.
-        // => The exports will contain the new?
-        // Resolved {
-        //     export_specification: todo!(),
-        //     resolved_imports: todo!(),
-        // }
-        todo!()
-    }
-}
-
-impl Resolved<(BeforeFunctionIndex, Option<AfterFunctionIndex>)> {
-    pub(crate) fn second_pass(
-        self,
-        old_to_new_function_resolver: &HashMap<
-            (ModuleName, BeforeFunctionIndex),
-            AfterFunctionIndex,
-        >,
-    ) -> Resolved<(BeforeFunctionIndex, AfterFunctionIndex)> {
-        let _ = old_to_new_function_resolver;
-        todo!()
-    }
-}
-
-impl FunctionSpecification<BeforeFunctionIndex> {
-    fn for_merged(
-        self,
-        yielder: &mut FunctionIndexYielder<AfterFunctionIndex>,
-        old_to_new_function_resolver: &mut HashMap<
-            (ModuleName, BeforeFunctionIndex),
-            AfterFunctionIndex,
-        >,
-    ) -> FunctionSpecification<ResolvedIndexMap> {
-        let FunctionSpecification {
-            defining_module,
-            ty,
-            index: old_index,
-        } = self;
-        let new_index = yielder.give();
-        assert!(
-            old_to_new_function_resolver
-                .insert(
-                    (defining_module.clone(), old_index.clone()),
-                    new_index.clone()
-                )
-                .is_none()
-        );
-        FunctionSpecification {
-            defining_module,
-            ty,
-            index: (old_index, new_index),
-        }
-    }
-}
-
-impl FunctionExportSpecification<BeforeFunctionIndex> {
-    fn for_merged(
-        self,
-        old_to_new_function_resolver: &HashMap<
-            (ModuleName, BeforeFunctionIndex),
-            AfterFunctionIndex,
-        >,
-    ) -> FunctionExportSpecification<ResolvedIndexMap> {
-        let FunctionExportSpecification {
-            module,
-            name,
-            ty,
-            index,
-        } = self;
-        let reference = (module, index);
-        let new_index = old_to_new_function_resolver.get(&reference).unwrap();
-        let (module, index) = reference;
-        FunctionExportSpecification {
-            module,
-            name,
-            ty,
-            index: (index, new_index.clone()),
         }
     }
 }

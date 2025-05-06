@@ -20,17 +20,17 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
     pub fn merge(&mut self) -> anyhow::Result<Vec<u8>> {
         let parsed_modules = self.try_parse()?;
 
-        // First pass
+        // First pass: consider each parsed module
         let mut resolver: Resolver = Default::default();
         for parsed_module in parsed_modules.iter() {
             resolver.consider(parsed_module)?;
         }
 
-        // Resolve
+        // Next, with the given modules, resolve imports & exports
         let resolution_schema = resolver.resolve(&self.owned_names())?;
         let mut merged_builder = Merger::new(resolution_schema);
 
-        // Second pass
+        // Next follows the second pass in which content is copied over
         for parsed_module in parsed_modules {
             merged_builder.include(parsed_module)?;
         }

@@ -150,7 +150,7 @@ impl ResolutionSchemaBuilder {
         &mut self,
         specification: FunctionExportSpecification<BeforeFunctionIndex>,
     ) {
-        let newly_inserted = self.provided_exports.contains(&specification);
+        let newly_inserted = self.provided_exports.insert(specification);
         assert!(newly_inserted);
     }
 
@@ -163,25 +163,23 @@ impl ResolutionSchemaBuilder {
             provided_exports,
         } = self;
 
-        // Get all exported functions, 'prepare' this list to attempt linking
-        let mut potentially_resolved_exports =
-            provided_exports
-                .into_iter()
-                .map(|export_specification| NameResolved {
-                    export_specification,
-                    resolved_imports: Default::default(),
-                });
+        // Get all exported functions, 'prepare' to attempt linking this to other imports
+        let mut potentially_resolved_exports: Vec<_> = provided_exports
+            .into_iter()
+            .map(|export_specification| NameResolved {
+                export_specification,
+                resolved_imports: HashSet::new(),
+            })
+            .collect();
 
         let mut unresolved_imports = HashSet::new();
 
         // For each imported function, attempt to resolve it with an export based on naming
-        for import in expected_imports {
-            let target = |export: &NameResolved| {
-                export.export_specification.module == import.exporting_module
+        for import in expected_imports.into_iter() {
+            if let Some(export) = potentially_resolved_exports.iter_mut().find(|export| {
+                export.export_specification.module.name == import.exporting_module.name
                     && export.export_specification.name == import.name
-            };
-
-            if let Some(mut export) = potentially_resolved_exports.find(target) {
+            }) {
                 assert!(export.resolved_imports.insert(import));
             } else {
                 assert!(unresolved_imports.insert(import));

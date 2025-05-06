@@ -1,6 +1,6 @@
 use derive_more::{From, FromStr, Into};
-use std::{collections::HashSet, hash::Hash, marker::PhantomData};
-use walrus::{TypeId, ValType};
+use std::{collections::HashSet, hash::Hash};
+use walrus::{LocalId, TypeId, ValType};
 
 pub(crate) mod identified_resolution_schema; // TODO: enable / remove
 pub(crate) mod resolution_schema;
@@ -37,32 +37,6 @@ impl FuncType {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct FunctionIndexYielder<T> {
-    count: usize,
-    _yield_type: PhantomData<T>,
-}
-
-impl<T: From<usize>> FunctionIndexYielder<T> {
-    pub(crate) fn new_starting_at(count: usize) -> Self {
-        Self {
-            count,
-            _yield_type: PhantomData,
-        }
-    }
-
-    pub(crate) fn new() -> Self {
-        Self::new_starting_at(0)
-    }
-
-    #[must_use]
-    pub(crate) fn give(&mut self) -> T {
-        let res = From::from(self.count);
-        self.count += 1;
-        res
-    }
-}
-
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, FromStr, Into)]
 #[from(&str)]
 pub(crate) struct FunctionName {
@@ -82,10 +56,10 @@ where
 {
     /// An imported function that could not be matched with an exported function
     unresolved_imports: HashSet<FunctionImportSpecification<Identifier>>,
-    /// The functions defined internally not exported nor imported
-    local_function_specifications: HashSet<FunctionSpecification<Identifier>>,
     /// The resolved functions, where a single export is linked to the corresponding imports
     resolved: HashSet<Resolved<Identifier>>,
+    /// The functions defined internally not exported nor imported
+    local_function_specifications: HashSet<FunctionSpecification<Identifier>>,
     /// An exported function that could not be matched with an imported function
     unresolved_exports: HashSet<FunctionExportSpecification<Identifier>>,
 }
@@ -118,6 +92,7 @@ pub(crate) struct FunctionImportSpecification<Index> {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub(crate) struct FunctionSpecification<Index> {
     pub(crate) defining_module: ModuleName,
+    pub(crate) locals: Box<[(LocalId, ValType)]>,
     pub(crate) ty: FuncType,
     pub(crate) index: Index,
 }

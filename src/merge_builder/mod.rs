@@ -29,6 +29,7 @@ impl Resolver {
             imports: considering_imports,
             funcs: considering_funcs,
             exports: considering_exports,
+            locals: considering_locals,
             // FIXME: `tables`, `globals`, `memories` could be resolved too.
             // Currently no support for.
             ..
@@ -49,24 +50,32 @@ impl Resolver {
                 self.resolver.add_import(function_import_specification);
                 covered_function_imports.insert((id, import.id()));
             } else {
-                // FIXME: `tables`, `globals`, `memories` could be resolved too.
-                // Currently no support for.
+                // FIXME: Skipping resolving `tables`, `globals` & `memories`.
                 println!("Skipping `tables`, `globals`, `memories`")
             }
         }
 
         for function in considering_funcs.iter() {
             match &function.kind {
-                walrus::FunctionKind::Import(i) => {
-                    debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)))
-                }
                 walrus::FunctionKind::Local(local_function) => {
-                    let local = FunctionSpecification {
+                    let locals = local_function
+                        .args
+                        .iter()
+                        .map(|local| {
+                            let local = considering_locals.get(*local);
+                            (local.id(), local.ty())
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+                    self.resolver.add_local_function(FunctionSpecification {
+                        locals,
                         defining_module: (*considering_module).into(),
                         ty: FuncType::from_types(local_function.ty(), considering_types),
                         index: function.id().index().into(),
-                    };
-                    self.resolver.add_local_function(local);
+                    });
+                }
+                walrus::FunctionKind::Import(i) => {
+                    debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)))
                 }
                 walrus::FunctionKind::Uninitialized(_) => {
                     return Err(Error::ComponentModelUnsupported(
@@ -82,12 +91,11 @@ impl Resolver {
                     module: (*considering_module).into(),
                     name: export.name.as_str().into(),
                     ty: FuncType::from_types(considering_funcs.get(id).ty(), considering_types),
-                    index: export.id().index().into(),
+                    index: id.index().into(),
                 };
                 self.resolver.add_export(export);
             } else {
-                // FIXME: `tables`, `globals`, `memories` could be resolved too.
-                // Currently no support for.
+                // FIXME: Skipping resolving `tables`, `globals` & `memories`.
                 println!("Skipping merging for `tables`, `globals`, `memories`")
             }
         }
