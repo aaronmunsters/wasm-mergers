@@ -8,6 +8,7 @@ use crate::named_module::NamedParsedModule;
 use crate::resolver::identified_resolution_schema::{
     MergedExport, MergedImport, OrderedResolutionSchema,
 };
+use crate::resolver::resolution_schema::Before;
 use crate::resolver::{FunctionImportSpecification, FunctionSpecification, Resolved};
 
 mod old_to_new_mapping;
@@ -83,7 +84,7 @@ impl Merger {
                 .function_mapping
                 .get(&(
                     export_specification.module.name.as_str().into(),
-                    export_specification.index.index.into(),
+                    export_specification.index.clone(), // FIXME: [#1]
                 ))
                 .unwrap();
             for resolved_import in resolved_imports {
@@ -94,7 +95,7 @@ impl Merger {
                     ty: _,
                     index: before_index,
                 } = resolved_import;
-                debug_assert_eq!(exporting_module, &export_specification.module);
+                debug_assert_eq!(*exporting_module, export_specification.module);
                 mapping.function_mapping.insert(
                     (importing_module.clone(), before_index.clone()),
                     local_function_index,
@@ -225,10 +226,7 @@ impl Merger {
                             *self
                                 .mapping
                                 .function_mapping
-                                .get(&(
-                                    considering_module_name.into(),
-                                    old_function_id.index().into(),
-                                ))
+                                .get(&(considering_module_name.into(), Before(*old_function_id)))
                                 .unwrap()
                         })
                         .collect(),
@@ -310,7 +308,7 @@ impl Merger {
                             debug_assert!(
                                 self.mapping
                                     .function_mapping
-                                    .contains_key(&(importing_module, before_id.index().into()))
+                                    .contains_key(&(importing_module, Before(*before_id)))
                             );
                         }
                     }
@@ -362,7 +360,7 @@ impl Merger {
                     let new_function_index = *self
                         .mapping
                         .function_mapping
-                        .get(&(considering_module_name.into(), function.id().index().into()))
+                        .get(&(considering_module_name.into(), Before(old_function_index)))
                         .unwrap();
 
                     let mut visitor: WasmFunctionCopy<'_, '_> = WasmFunctionCopy::new(
@@ -404,7 +402,7 @@ impl Merger {
                             let new_function_id = *self
                                 .mapping
                                 .function_mapping
-                                .get(&(considering_module_name.into(), before_id.index().into()))
+                                .get(&(considering_module_name.into(), Before(*before_id)))
                                 .unwrap();
                             let export_id = self
                                 .merged
@@ -465,7 +463,7 @@ impl Merger {
             let new_start_id = self
                 .mapping
                 .function_mapping
-                .get(&(considering_module_name.into(), old_start_id.index().into()))
+                .get(&(considering_module_name.into(), Before(*old_start_id)))
                 .unwrap();
             self.starts.push(*new_start_id);
         }
@@ -506,3 +504,7 @@ impl Merger {
         self.merged
     }
 }
+
+// FIXME: [#1]
+// The issue with this `.clone()` is that its content (Before<FunctionId>) is
+// cheap to clone, but that may not be always the case

@@ -1,5 +1,7 @@
 use std::slice::Iter;
 
+use walrus::FunctionId;
+
 use super::FunctionExportSpecification;
 use super::FunctionImportSpecification;
 use super::FunctionName;
@@ -7,7 +9,7 @@ use super::FunctionSpecification;
 use super::ModuleName;
 use super::ResolutionSchema;
 use super::Resolved;
-use super::resolution_schema::BeforeFunctionIndex;
+use super::resolution_schema::Before;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub(crate) struct AfterFunctionIndex {
@@ -23,24 +25,24 @@ impl From<usize> for AfterFunctionIndex {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OrderedResolutionSchema {
     /// An imported function that could not be matched with an exported function
-    unresolved_imports: Vec<FunctionImportSpecification<BeforeFunctionIndex>>,
+    unresolved_imports: Vec<FunctionImportSpecification<Before<FunctionId>>>,
     /// The resolved functions, where a single export is linked to the corresponding imports
-    resolved: Vec<Resolved<BeforeFunctionIndex>>,
+    resolved: Vec<Resolved<Before<FunctionId>>>,
     /// The internally defined functions
-    local: Vec<FunctionSpecification<BeforeFunctionIndex>>,
+    local: Vec<FunctionSpecification<Before<FunctionId>>>,
     /// An exported function that could not be matched with an imported function
-    unresolved_exports: Vec<FunctionExportSpecification<BeforeFunctionIndex>>,
+    unresolved_exports: Vec<FunctionExportSpecification<Before<FunctionId>>>,
 }
 
 pub(crate) enum MergedImport {
     Resolved,
-    Unresolved(FunctionImportSpecification<BeforeFunctionIndex>),
+    Unresolved(FunctionImportSpecification<Before<FunctionId>>),
 }
 
 #[derive(Debug)]
 pub(crate) enum MergedExport {
     Resolved,
-    Unresolved(FunctionExportSpecification<BeforeFunctionIndex>),
+    Unresolved(FunctionExportSpecification<Before<FunctionId>>),
 }
 
 impl OrderedResolutionSchema {
@@ -77,28 +79,28 @@ impl OrderedResolutionSchema {
 
     pub(crate) fn unresolved_imports_iter(
         &self,
-    ) -> Iter<'_, FunctionImportSpecification<BeforeFunctionIndex>> {
+    ) -> Iter<'_, FunctionImportSpecification<Before<FunctionId>>> {
         self.unresolved_imports.iter()
     }
 
     pub(crate) fn get_local_specifications(
         &self,
-    ) -> Iter<'_, FunctionSpecification<BeforeFunctionIndex>> {
+    ) -> Iter<'_, FunctionSpecification<Before<FunctionId>>> {
         self.local.iter()
     }
 
-    pub(crate) fn resolved_iter(&self) -> Iter<'_, Resolved<BeforeFunctionIndex>> {
+    pub(crate) fn resolved_iter(&self) -> Iter<'_, Resolved<Before<FunctionId>>> {
         self.resolved.iter()
     }
 }
 
-impl ResolutionSchema<BeforeFunctionIndex> {
+impl ResolutionSchema<Before<FunctionId>> {
     /// Takes out the unresolved imports that are imported by `module`, sorts
     /// them based on the module-local index.
     fn remove_sorted_unresolved_imports(
         &mut self,
         module: &ModuleName,
-    ) -> Vec<FunctionImportSpecification<BeforeFunctionIndex>> {
+    ) -> Vec<FunctionImportSpecification<Before<FunctionId>>> {
         let unresolved_imports = core::mem::take(&mut self.unresolved_imports);
         let (mut unresolved_imports_from_module, unresolved_imports): (Vec<_>, Vec<_>) =
             unresolved_imports
@@ -112,10 +114,7 @@ impl ResolutionSchema<BeforeFunctionIndex> {
     /// Remove resolved functions from the given module.
     /// It is the exported functions from the given module
     ///  that are returned here.
-    fn remove_sorted_resolved(
-        &mut self,
-        module: &ModuleName,
-    ) -> Vec<Resolved<BeforeFunctionIndex>> {
+    fn remove_sorted_resolved(&mut self, module: &ModuleName) -> Vec<Resolved<Before<FunctionId>>> {
         let resolveds = core::mem::take(&mut self.resolved);
         let (mut resolveds_from_module, resolveds): (Vec<_>, Vec<_>) = resolveds
             .into_iter()
@@ -132,7 +131,7 @@ impl ResolutionSchema<BeforeFunctionIndex> {
     fn remove_internal(
         &mut self,
         module: &ModuleName,
-    ) -> Vec<FunctionSpecification<BeforeFunctionIndex>> {
+    ) -> Vec<FunctionSpecification<Before<FunctionId>>> {
         let internal_function_specifications =
             core::mem::take(&mut self.local_function_specifications);
         let (mut internal_function_specifications_from_module, internal_function_specifications): (
@@ -149,7 +148,7 @@ impl ResolutionSchema<BeforeFunctionIndex> {
     fn remove_sorted_unresolved_exports(
         &mut self,
         module: &ModuleName,
-    ) -> Vec<FunctionExportSpecification<BeforeFunctionIndex>> {
+    ) -> Vec<FunctionExportSpecification<Before<FunctionId>>> {
         let unresolved_exports = core::mem::take(&mut self.unresolved_exports);
         let (mut unresolved_exports_from_module, unresolved_exports): (Vec<_>, Vec<_>) =
             unresolved_exports

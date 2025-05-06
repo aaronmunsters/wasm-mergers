@@ -1,31 +1,29 @@
-use derive_more::{From, Into};
+use derive_more::From;
 use std::collections::{HashMap, HashSet};
+use walrus::FunctionId;
 
 use super::{
     FunctionExportSpecification, FunctionImportSpecification, FunctionName, FunctionSpecification,
     ResolutionSchema, Resolved,
 };
 
-// TODO: should become function index?
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, From, Into)]
-pub(crate) struct BeforeFunctionIndex {
-    pub(crate) index: usize,
-}
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, From)]
+pub(crate) struct Before<T>(pub(crate) T);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NameResolved {
     /// The exported function
-    export_specification: FunctionExportSpecification<BeforeFunctionIndex>,
+    export_specification: FunctionExportSpecification<Before<FunctionId>>,
     /// The imported functions with which the exported is resolved by namespace
-    resolved_imports: HashSet<FunctionImportSpecification<BeforeFunctionIndex>>,
+    resolved_imports: HashSet<FunctionImportSpecification<Before<FunctionId>>>,
 }
 
 enum FunctionResolveResult {
-    NoImportPresent(FunctionExportSpecification<BeforeFunctionIndex>),
-    AllImportsResolve(Resolved<BeforeFunctionIndex>),
+    NoImportPresent(FunctionExportSpecification<Before<FunctionId>>),
+    AllImportsResolve(Resolved<Before<FunctionId>>),
     AllImportsMismatch(TypeMismatch),
     PartialResolvePartialMismatch {
-        resolve: Resolved<BeforeFunctionIndex>,
+        resolve: Resolved<Before<FunctionId>>,
         mismatch: TypeMismatch,
     },
 }
@@ -86,9 +84,9 @@ impl NameResolved {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct TypeMismatch {
     /// The exported function
-    export_specification: FunctionExportSpecification<BeforeFunctionIndex>,
+    export_specification: FunctionExportSpecification<Before<FunctionId>>,
     /// The imported functions with which the exported is resolved but mismatches in type
-    resolved_imports: Vec<FunctionImportSpecification<BeforeFunctionIndex>>,
+    resolved_imports: Vec<FunctionImportSpecification<Before<FunctionId>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,23 +114,23 @@ pub struct ValidationFailure {
     ///
     /// If no other module imports "f", then M
     /// Would result in a `HashMap { "f" -> { A:f, B:f } }`.
-    name_clashes: HashMap<FunctionName, HashSet<FunctionExportSpecification<BeforeFunctionIndex>>>,
+    name_clashes: HashMap<FunctionName, HashSet<FunctionExportSpecification<Before<FunctionId>>>>,
 
     /// Part of the resolution that was a success.
-    resolved_schema: ResolutionSchema<BeforeFunctionIndex>,
+    resolved_schema: ResolutionSchema<Before<FunctionId>>,
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct ResolutionSchemaBuilder {
-    expected_imports: HashSet<FunctionImportSpecification<BeforeFunctionIndex>>,
-    local_function_specifications: HashSet<FunctionSpecification<BeforeFunctionIndex>>,
-    provided_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>>,
+    expected_imports: HashSet<FunctionImportSpecification<Before<FunctionId>>>,
+    local_function_specifications: HashSet<FunctionSpecification<Before<FunctionId>>>,
+    provided_exports: HashSet<FunctionExportSpecification<Before<FunctionId>>>,
 }
 
 impl ResolutionSchemaBuilder {
     pub(crate) fn add_import(
         &mut self,
-        specification: FunctionImportSpecification<BeforeFunctionIndex>,
+        specification: FunctionImportSpecification<Before<FunctionId>>,
     ) {
         let newly_inserted = self.expected_imports.insert(specification);
         assert!(newly_inserted);
@@ -140,7 +138,7 @@ impl ResolutionSchemaBuilder {
 
     pub(crate) fn add_local_function(
         &mut self,
-        specification: FunctionSpecification<BeforeFunctionIndex>,
+        specification: FunctionSpecification<Before<FunctionId>>,
     ) {
         let newly_inserted = self.local_function_specifications.insert(specification);
         assert!(newly_inserted);
@@ -148,7 +146,7 @@ impl ResolutionSchemaBuilder {
 
     pub(crate) fn add_export(
         &mut self,
-        specification: FunctionExportSpecification<BeforeFunctionIndex>,
+        specification: FunctionExportSpecification<Before<FunctionId>>,
     ) {
         let newly_inserted = self.provided_exports.insert(specification);
         assert!(newly_inserted);
@@ -156,7 +154,7 @@ impl ResolutionSchemaBuilder {
 
     pub(crate) fn validate(
         self,
-    ) -> Result<ResolutionSchema<BeforeFunctionIndex>, Box<ValidationFailure>> {
+    ) -> Result<ResolutionSchema<Before<FunctionId>>, Box<ValidationFailure>> {
         let Self {
             expected_imports,
             local_function_specifications,
@@ -225,7 +223,7 @@ impl ResolutionSchemaBuilder {
         let mut name_clashes = HashMap::new();
 
         enum Encountered {
-            First(FunctionExportSpecification<BeforeFunctionIndex>),
+            First(FunctionExportSpecification<Before<FunctionId>>),
             Before,
         }
 
@@ -251,7 +249,7 @@ impl ResolutionSchemaBuilder {
                             .is_none()
                     );
                     name_clashes.entry(name).and_modify(
-                        |c: &mut HashSet<FunctionExportSpecification<BeforeFunctionIndex>>| {
+                        |c: &mut HashSet<FunctionExportSpecification<Before<FunctionId>>>| {
                             assert!(c.insert(export));
                         },
                     );
@@ -266,7 +264,7 @@ impl ResolutionSchemaBuilder {
             }
         }
 
-        let unresolved_exports: HashSet<FunctionExportSpecification<BeforeFunctionIndex>> =
+        let unresolved_exports: HashSet<FunctionExportSpecification<Before<FunctionId>>> =
             export_names
                 .into_values()
                 .filter_map(|e| match e {

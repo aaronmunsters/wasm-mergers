@@ -18,6 +18,7 @@ use walrus::ir::Loop;
 use walrus::ir::{Instr, Visitor};
 
 use crate::resolver::FuncType;
+use crate::resolver::resolution_schema::Before;
 
 use super::old_to_new_mapping::Mapping;
 
@@ -131,7 +132,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
     fn old_to_new_fn_id(&self, old_id: FunctionId) -> FunctionId {
         self.mapping
             .function_mapping
-            .get(&(self.old_module_name.as_str().into(), old_id.index().into()))
+            .get(&(self.old_module_name.as_str().into(), Before(old_id)))
             .copied()
             .unwrap()
     }
@@ -150,7 +151,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .locals_mapping
             .get(&(
                 self.old_module_name.as_str().into(),
-                self.old_function_index.index().into(),
+                Before(self.old_function_index),
                 old_id,
             ))
             .unwrap()

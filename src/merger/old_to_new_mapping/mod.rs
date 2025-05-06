@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId};
 
-use crate::resolver::{ModuleName, resolution_schema::BeforeFunctionIndex};
+use crate::resolver::{ModuleName, resolution_schema::Before};
 
 #[derive(Default)]
 pub struct Mapping {
@@ -13,6 +13,6 @@ pub struct Mapping {
     pub datas: HashMap<(String, DataId), DataId>,
     pub elements: HashMap<(String, ElementId), ElementId>,
 
-    pub function_mapping: HashMap<(ModuleName, BeforeFunctionIndex), FunctionId>,
-    pub locals_mapping: HashMap<(ModuleName, BeforeFunctionIndex, LocalId), LocalId>,
+    pub function_mapping: HashMap<(ModuleName, Before<FunctionId>), FunctionId>,
+    pub locals_mapping: HashMap<(ModuleName, Before<FunctionId>, LocalId), LocalId>,
 }

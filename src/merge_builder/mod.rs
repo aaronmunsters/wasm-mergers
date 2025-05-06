@@ -10,7 +10,7 @@ use crate::resolver::FunctionImportSpecification;
 use crate::resolver::FunctionSpecification;
 use crate::resolver::ModuleName;
 use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
-use crate::resolver::resolution_schema::BeforeFunctionIndex;
+use crate::resolver::resolution_schema::Before;
 use crate::resolver::resolution_schema::ResolutionSchemaBuilder;
 
 #[derive(Debug, Default)]
@@ -38,17 +38,20 @@ impl Resolver {
         let mut covered_function_imports = HashSet::new();
 
         for import in considering_imports.iter() {
-            if let walrus::ImportKind::Function(id) = &import.kind {
-                let before_index = BeforeFunctionIndex::from(id.index());
+            if let walrus::ImportKind::Function(old_function_id) = &import.kind {
+                let ty = FuncType::from_types(
+                    considering_funcs.get(*old_function_id).ty(),
+                    considering_types,
+                );
                 let function_import_specification = FunctionImportSpecification {
                     importing_module: (*considering_module).into(),
                     exporting_module: (*import.module).into(),
                     name: (*import.name).into(),
-                    ty: FuncType::from_types(considering_funcs.get(*id).ty(), considering_types),
-                    index: before_index,
+                    ty,
+                    index: Before::from(*old_function_id),
                 };
                 self.resolver.add_import(function_import_specification);
-                covered_function_imports.insert((id, import.id()));
+                covered_function_imports.insert((old_function_id, import.id()));
             } else {
                 // FIXME: Skipping resolving `tables`, `globals` & `memories`.
                 println!("Skipping `tables`, `globals`, `memories`")
@@ -71,7 +74,7 @@ impl Resolver {
                         locals,
                         defining_module: (*considering_module).into(),
                         ty: FuncType::from_types(local_function.ty(), considering_types),
-                        index: function.id().index().into(),
+                        index: function.id().into(),
                     });
                 }
                 walrus::FunctionKind::Import(i) => {
@@ -91,7 +94,7 @@ impl Resolver {
                     module: (*considering_module).into(),
                     name: export.name.as_str().into(),
                     ty: FuncType::from_types(considering_funcs.get(id).ty(), considering_types),
-                    index: id.index().into(),
+                    index: Before::from(id),
                 };
                 self.resolver.add_export(export);
             } else {
