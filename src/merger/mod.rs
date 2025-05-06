@@ -86,7 +86,7 @@ impl Merger {
                 .funcs
                 .get(&(
                     export_specification.module.clone(),
-                    export_specification.index.clone(), // FIXME: [#1]
+                    export_specification.index.clone(),
                 ))
                 .unwrap();
             for resolved_import in resolved_imports {
@@ -539,7 +539,3 @@ impl Merger {
         self.merged
     }
 }
-
-// FIXME: [#1]
-// The issue with this `.clone()` is that its content (Before<FunctionId>) is
-// cheap to clone, but that may not be always the case
