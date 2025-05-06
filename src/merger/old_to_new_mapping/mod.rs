@@ -6,13 +6,11 @@ use crate::resolver::{ModuleName, resolution_schema::Before};
 
 #[derive(Default)]
 pub struct Mapping {
-    // pub functions: HashMap<(String, FunctionId), FunctionId>,
-    pub tables: HashMap<(String, TableId), TableId>,
-    pub globals: HashMap<(String, GlobalId), GlobalId>,
-    pub memories: HashMap<(String, MemoryId), MemoryId>,
-    pub datas: HashMap<(String, DataId), DataId>,
-    pub elements: HashMap<(String, ElementId), ElementId>,
-
-    pub function_mapping: HashMap<(ModuleName, Before<FunctionId>), FunctionId>,
-    pub locals_mapping: HashMap<(ModuleName, Before<FunctionId>, LocalId), LocalId>,
+    pub tables: HashMap<(ModuleName, Before<TableId>), TableId>,
+    pub globals: HashMap<(ModuleName, Before<GlobalId>), GlobalId>,
+    pub memories: HashMap<(ModuleName, Before<MemoryId>), MemoryId>,
+    pub datas: HashMap<(ModuleName, Before<DataId>), DataId>,
+    pub elements: HashMap<(ModuleName, Before<ElementId>), ElementId>,
+    pub funcs: HashMap<(ModuleName, Before<FunctionId>), FunctionId>,
+    pub locals: HashMap<(ModuleName, Before<FunctionId>, LocalId), LocalId>,
 }

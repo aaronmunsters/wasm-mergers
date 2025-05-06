@@ -9,7 +9,9 @@ use crate::resolver::identified_resolution_schema::{
     MergedExport, MergedImport, OrderedResolutionSchema,
 };
 use crate::resolver::resolution_schema::Before;
-use crate::resolver::{FunctionImportSpecification, FunctionSpecification, Resolved};
+use crate::resolver::{
+    FunctionImportSpecification, FunctionName, FunctionSpecification, ModuleName, Resolved,
+};
 
 mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;
@@ -35,16 +37,16 @@ impl Merger {
         for import_specification in resolution_schema.unresolved_imports_iter() {
             let FunctionImportSpecification {
                 importing_module,
-                exporting_module,
-                name,
+                exporting_module: ModuleName(exporting_module_name),
+                name: FunctionName(function_name),
                 ty,
                 index: before_index,
             } = import_specification;
             let ty = merged.types.add(ty.params(), ty.results());
             let (new_function_index, new_import_index) =
-                merged.add_import_func(&exporting_module.name, &name.name, ty);
+                merged.add_import_func(exporting_module_name, function_name, ty);
             let _ = new_import_index;
-            mapping.function_mapping.insert(
+            mapping.funcs.insert(
                 (importing_module.clone(), before_index.clone()),
                 new_function_index,
             );
@@ -63,7 +65,7 @@ impl Merger {
                 .map(|(old_id, ty)| {
                     let new_id = merged.locals.add(*ty);
                     mapping
-                        .locals_mapping
+                        .locals
                         .insert((defining_module.clone(), index.clone(), *old_id), new_id);
                     new_id
                 })
@@ -71,7 +73,7 @@ impl Merger {
             let builder = FunctionBuilder::new(&mut merged.types, ty.params(), ty.results());
             let new_function_index = builder.finish(locals, &mut merged.funcs);
             mapping
-                .function_mapping
+                .funcs
                 .insert((defining_module.clone(), index.clone()), new_function_index);
         }
 
@@ -81,9 +83,9 @@ impl Merger {
                 resolved_imports,
             } = resolved;
             let local_function_index = *mapping
-                .function_mapping
+                .funcs
                 .get(&(
-                    export_specification.module.name.as_str().into(),
+                    export_specification.module.clone(),
                     export_specification.index.clone(), // FIXME: [#1]
                 ))
                 .unwrap();
@@ -96,7 +98,7 @@ impl Merger {
                     index: before_index,
                 } = resolved_import;
                 debug_assert_eq!(*exporting_module, export_specification.module);
-                mapping.function_mapping.insert(
+                mapping.funcs.insert(
                     (importing_module.clone(), before_index.clone()),
                     local_function_index,
                 );
@@ -164,7 +166,10 @@ impl Merger {
                 ),
             };
             self.mapping.globals.insert(
-                (considering_module_name.to_string(), global.id()),
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(global.id()),
+                ),
                 new_global_id,
             );
         }
@@ -194,7 +199,10 @@ impl Merger {
                 ),
             };
             self.mapping.memories.insert(
-                (considering_module_name.to_string(), memory.id()),
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(memory.id()),
+                ),
                 new_memory_id,
             );
         }
@@ -205,7 +213,10 @@ impl Merger {
                     memory: *self
                         .mapping
                         .memories
-                        .get(&(considering_module_name.to_string(), memory))
+                        .get(&(
+                            ModuleName(considering_module_name.to_string()),
+                            Before(memory),
+                        ))
                         .unwrap(),
                     offset,
                 },
@@ -213,7 +224,10 @@ impl Merger {
             };
             let new_data_id = self.merged.data.add(kind, data.value.clone());
             self.mapping.datas.insert(
-                (considering_module_name.to_string(), data.id()),
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(data.id()),
+                ),
                 new_data_id,
             );
         }
@@ -225,7 +239,7 @@ impl Merger {
                         .map(|old_function_id| {
                             *self
                                 .mapping
-                                .function_mapping
+                                .funcs
                                 .get(&(considering_module_name.into(), Before(*old_function_id)))
                                 .unwrap()
                         })
@@ -235,7 +249,10 @@ impl Merger {
             };
             let new_element_id = self.merged.elements.add(element.kind, items);
             self.mapping.elements.insert(
-                (considering_module_name.to_string(), element.id()),
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(element.id()),
+                ),
                 new_element_id,
             );
         }
@@ -271,7 +288,10 @@ impl Merger {
                     .add_local(*table64, *initial, *maximum, *element_ty),
             };
             self.mapping.tables.insert(
-                (considering_module_name.to_string(), table.id()),
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(table.id()),
+                ),
                 new_table_id,
             );
 
@@ -281,7 +301,10 @@ impl Merger {
                 let new_element_id = *self
                     .mapping
                     .elements
-                    .get(&(considering_module_name.to_string(), *old_element_id))
+                    .get(&(
+                        ModuleName(considering_module_name.to_string()),
+                        Before(*old_element_id),
+                    ))
                     .unwrap();
                 table.elem_segments.insert(new_element_id);
             }
@@ -307,7 +330,7 @@ impl Merger {
                             let _ = import_spec; // FIXME: unused?
                             debug_assert!(
                                 self.mapping
-                                    .function_mapping
+                                    .funcs
                                     .contains_key(&(importing_module, Before(*before_id)))
                             );
                         }
@@ -359,7 +382,7 @@ impl Merger {
                     let old_function_index = function.id();
                     let new_function_index = *self
                         .mapping
-                        .function_mapping
+                        .funcs
                         .get(&(considering_module_name.into(), Before(old_function_index)))
                         .unwrap();
 
@@ -401,7 +424,7 @@ impl Merger {
                             // FIXME: allow hiding resolved functions
                             let new_function_id = *self
                                 .mapping
-                                .function_mapping
+                                .funcs
                                 .get(&(considering_module_name.into(), Before(*before_id)))
                                 .unwrap();
                             let export_id = self
@@ -414,7 +437,7 @@ impl Merger {
                             let before_index = export_spec.index;
                             let after_index = *self
                                 .mapping
-                                .function_mapping
+                                .funcs
                                 .get(&(considering_module_name.into(), before_index))
                                 .unwrap();
                             let export_id = self
@@ -430,7 +453,7 @@ impl Merger {
                     let new_table_id = self
                         .mapping
                         .tables
-                        .get(&(considering_module_name.into(), *before_index))
+                        .get(&(considering_module_name.into(), Before(*before_index)))
                         .unwrap();
                     self.merged
                         .exports
@@ -440,7 +463,7 @@ impl Merger {
                     let new_memory_id = self
                         .mapping
                         .memories
-                        .get(&(considering_module_name.into(), *before_index))
+                        .get(&(considering_module_name.into(), Before(*before_index)))
                         .unwrap();
                     self.merged
                         .exports
@@ -450,7 +473,7 @@ impl Merger {
                     let new_global_id = self
                         .mapping
                         .globals
-                        .get(&(considering_module_name.into(), *before_index))
+                        .get(&(considering_module_name.into(), Before(*before_index)))
                         .unwrap();
                     self.merged
                         .exports
@@ -462,7 +485,7 @@ impl Merger {
         if let Some(old_start_id) = start {
             let new_start_id = self
                 .mapping
-                .function_mapping
+                .funcs
                 .get(&(considering_module_name.into(), Before(*old_start_id)))
                 .unwrap();
             self.starts.push(*new_start_id);

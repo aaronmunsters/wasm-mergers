@@ -18,6 +18,7 @@ use walrus::ir::Loop;
 use walrus::ir::{Instr, Visitor};
 
 use crate::resolver::FuncType;
+use crate::resolver::ModuleName;
 use crate::resolver::resolution_schema::Before;
 
 use super::old_to_new_mapping::Mapping;
@@ -131,16 +132,8 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
 
     fn old_to_new_fn_id(&self, old_id: FunctionId) -> FunctionId {
         self.mapping
-            .function_mapping
+            .funcs
             .get(&(self.old_module_name.as_str().into(), Before(old_id)))
-            .copied()
-            .unwrap()
-    }
-
-    fn old_to_new_table_id(&self, old_id: TableId) -> TableId {
-        self.mapping
-            .tables
-            .get(&(self.old_module_name.to_string(), old_id))
             .copied()
             .unwrap()
     }
@@ -148,7 +141,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
     fn old_to_new_local_id(&self, old_id: LocalId) -> LocalId {
         *self
             .mapping
-            .locals_mapping
+            .locals
             .get(&(
                 self.old_module_name.as_str().into(),
                 Before(self.old_function_index),
@@ -157,34 +150,47 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .unwrap()
     }
 
+    fn old_to_new_table_id(&self, old_id: TableId) -> TableId {
+        let module = ModuleName(self.old_module_name.clone());
+        self.mapping
+            .tables
+            .get(&(module, Before(old_id)))
+            .copied()
+            .unwrap()
+    }
+
     fn old_to_new_global_id(&self, old_id: GlobalId) -> GlobalId {
+        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .globals
-            .get(&(self.old_module_name.to_string(), old_id))
+            .get(&(module, Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_memory_id(&self, old_id: MemoryId) -> MemoryId {
+        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .memories
-            .get(&(self.old_module_name.to_string(), old_id))
+            .get(&(module, Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_data_id(&self, old_id: DataId) -> DataId {
+        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .datas
-            .get(&(self.old_module_name.to_string(), old_id))
+            .get(&(module, Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_elem_id(&self, old_id: ElementId) -> ElementId {
+        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .elements
-            .get(&(self.old_module_name.to_string(), old_id))
+            .get(&(module, Before(old_id)))
             .copied()
             .unwrap()
     }

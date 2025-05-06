@@ -2,6 +2,8 @@ use derive_more::From;
 use std::collections::{HashMap, HashSet};
 use walrus::FunctionId;
 
+use crate::resolver::ModuleName;
+
 use super::{
     FunctionExportSpecification, FunctionImportSpecification, FunctionName, FunctionSpecification,
     ResolutionSchema, Resolved,
@@ -175,8 +177,13 @@ impl ResolutionSchemaBuilder {
         // For each imported function, attempt to resolve it with an export based on naming
         for import in expected_imports.into_iter() {
             if let Some(export) = potentially_resolved_exports.iter_mut().find(|export| {
-                export.export_specification.module.name == import.exporting_module.name
-                    && export.export_specification.name == import.name
+                let ModuleName(export_module_name) = &export.export_specification.module;
+                let ModuleName(import_module_name) = &import.exporting_module;
+                let FunctionName(export_function_name) = &export.export_specification.name;
+                let FunctionName(import_function_name) = &import.name;
+
+                export_module_name == import_module_name
+                    && export_function_name == import_function_name
             }) {
                 assert!(export.resolved_imports.insert(import));
             } else {

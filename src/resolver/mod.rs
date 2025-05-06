@@ -36,15 +36,11 @@ impl FuncType {
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, FromStr, Into)]
 #[from(&str)]
-pub(crate) struct FunctionName {
-    pub(crate) name: String,
-}
+pub(crate) struct FunctionName(pub(crate) String);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, FromStr, Into)]
 #[from(&str)]
-pub(crate) struct ModuleName {
-    pub(crate) name: String,
-}
+pub(crate) struct ModuleName(pub(crate) String);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolutionSchema<Identifier>
