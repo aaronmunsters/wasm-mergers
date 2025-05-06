@@ -13,7 +13,7 @@ pub use named_module::NamedModule;
 
 /// The methods that can be called from the public API
 impl<'a> MergeConfiguration<'a, &'a [u8]> {
-    pub fn new(modules: &'a [NamedBufferModule<'a>]) -> Self {
+    pub fn new(modules: &'a [&NamedBufferModule<'a>]) -> Self {
         Self::new_empty_builder(modules)
     }
 

@@ -1175,6 +1175,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "derive_more",
+ "itertools",
  "thiserror 2.0.12",
  "walrus",
  "wasmtime",

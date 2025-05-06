@@ -12,3 +12,4 @@ derive_more = { version = "2", features = ["from", "into", "from_str"] }
 [dev-dependencies]
 wasmtime = { version = "32.0.0" }
 wat = { version = "1.230.0" }
+itertools = "0.14.0"

@@ -1,3 +1,6 @@
+use std::iter::once;
+
+use itertools::Itertools;
 use wasm_mergers::{MergeConfiguration, NamedModule};
 use wasmtime::*;
 use wat::parse_str;
@@ -130,38 +133,42 @@ const WAT_MOD_E: &str = r#"
 #[test]
 fn merge_even_odd() {
     let manual_merged = { parse_str(WAT_MOD_ABCDE).unwrap() };
-    let lib_merged = {
-        let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
-        let wat_mod_b = parse_str(WAT_MOD_B).unwrap();
-        let wat_mod_c = parse_str(WAT_MOD_C).unwrap();
-        let wat_mod_d = parse_str(WAT_MOD_D).unwrap();
-        let wat_mod_e = parse_str(WAT_MOD_E).unwrap();
 
-        let modules: &[NamedModule<'_, &[u8]>] = &[
-            NamedModule::new("WAT_MOD_A", &wat_mod_a),
-            NamedModule::new("WAT_MOD_B", &wat_mod_b),
-            NamedModule::new("WAT_MOD_C", &wat_mod_c),
-            NamedModule::new("WAT_MOD_D", &wat_mod_d),
-            NamedModule::new("WAT_MOD_E", &wat_mod_e),
-        ];
+    let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
+    let wat_mod_b = parse_str(WAT_MOD_B).unwrap();
+    let wat_mod_c = parse_str(WAT_MOD_C).unwrap();
+    let wat_mod_d = parse_str(WAT_MOD_D).unwrap();
+    let wat_mod_e = parse_str(WAT_MOD_E).unwrap();
 
-        MergeConfiguration::new(modules).merge().unwrap()
-    };
+    let modules: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("WAT_MOD_A", &wat_mod_a),
+        &NamedModule::new("WAT_MOD_B", &wat_mod_b),
+        &NamedModule::new("WAT_MOD_C", &wat_mod_c),
+        &NamedModule::new("WAT_MOD_D", &wat_mod_d),
+        &NamedModule::new("WAT_MOD_E", &wat_mod_e),
+    ];
 
-    // Structural assertion
+    for merged_wasm in modules
+        .iter()
+        .permutations(modules.len())
+        .map(|perm| {
+            let perm: Box<[_]> = perm.into_iter().copied().collect();
+            MergeConfiguration::new(&perm).merge().unwrap()
+        })
+        .chain(once(manual_merged.clone()))
     {
-        let manual_merged_len = manual_merged.len() as f64;
-        let lib_merged_len = lib_merged.len() as f64;
-        let ratio = manual_merged_len / lib_merged_len;
-        const RATIO_ALLOWED_DELTA: f64 = 0.1; // 10% difference
-        assert!(
-            (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-            "Lengths differ by more than 50%: manual = {manual_merged_len}, lib = {lib_merged_len}",
-        );
-    }
+        // Structural assertion
+        {
+            let manual_merged_len = manual_merged.len() as f64;
+            let lib_merged_len = merged_wasm.len() as f64;
+            let ratio = manual_merged_len / lib_merged_len;
+            const RATIO_ALLOWED_DELTA: f64 = 0.1; // 10% difference
+            assert!(
+                (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
+                "Lengths differ by more than 50%: manual = {manual_merged_len}, lib = {lib_merged_len}",
+            );
+        }
 
-    // Behavioral assertion
-    for merged_wasm in [lib_merged, manual_merged] {
         // Interpret even & odd
         let mut store = Store::<()>::default();
         let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();

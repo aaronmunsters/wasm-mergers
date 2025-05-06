@@ -71,9 +71,9 @@ fn merge_even_odd() {
         let wat_even = parse_str(WAT_EVEN).unwrap();
         let wat_odd = parse_str(WAT_ODD).unwrap();
 
-        let modules: &[NamedModule<'_, &[u8]>] = &[
-            NamedModule::new("even", &wat_even),
-            NamedModule::new("odd", &wat_odd),
+        let modules: &[&NamedModule<'_, &[u8]>] = &[
+            &NamedModule::new("even", &wat_even),
+            &NamedModule::new("odd", &wat_odd),
         ];
 
         MergeConfiguration::new(modules).merge().unwrap()

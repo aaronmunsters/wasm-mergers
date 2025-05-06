@@ -13,7 +13,7 @@ pub struct MergeConfiguration<'a, Module> {
     //
     /// The modules that will be included in the output merged module.
     /// The order is relevant.
-    pub modules: &'a [NamedModule<'a, Module>],
+    pub modules: &'a [&'a NamedModule<'a, Module>],
 }
 
 impl<'a, T> MergeConfiguration<'a, T> {
@@ -25,12 +25,16 @@ impl<'a, T> MergeConfiguration<'a, T> {
 
 impl<'a> MergeConfiguration<'a, &'a [u8]> {
     #[must_use]
-    pub(crate) fn new_empty_builder(modules: &'a [NamedBufferModule<'a>]) -> Self {
+    pub(crate) fn new_empty_builder(modules: &'a [&'a NamedBufferModule<'a>]) -> Self {
         Self { modules }
     }
 
     #[must_use = "Parsing can become expensive, this result must be used"]
     pub(crate) fn try_parse(&self) -> anyhow::Result<Vec<NamedParsedModule<'a>>> {
-        self.modules.iter().map(TryInto::try_into).collect()
+        self.modules
+            .iter()
+            .copied()
+            .map(TryInto::try_into)
+            .collect()
     }
 }
