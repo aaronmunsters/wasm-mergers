@@ -84,8 +84,9 @@ fn merge_even_odd() {
         let manual_merged_len = manual_merged.len() as f64;
         let lib_merged_len = lib_merged.len() as f64;
         let ratio = manual_merged_len / lib_merged_len;
+        const RATIO_ALLOWED_DELTA: f64 = 0.20; // 20% difference
         assert!(
-            (0.5..=1.5).contains(&ratio),
+            (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
             "Lengths differ by more than 50%: manual = {manual_merged_len}, lib = {lib_merged_len}",
         );
     }
