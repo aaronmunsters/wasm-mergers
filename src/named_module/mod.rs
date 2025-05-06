@@ -8,8 +8,8 @@ pub struct NamedModule<'a, M> {
     pub module: M,
 }
 
-impl<'a> NamedModule<'a, Vec<u8>> {
-    pub fn new(name: &'a str, module: Vec<u8>) -> Self {
+impl<'a, T> NamedModule<'a, T> {
+    pub fn new(name: &'a str, module: T) -> Self {
         Self { name, module }
     }
 }

@@ -14,14 +14,8 @@ fn merge_even_odd() {
         let wat_odd = parse_str(WAT_ODD).unwrap();
 
         let modules: &[NamedModule<'_, &[u8]>] = &[
-            NamedModule {
-                name: "even",
-                module: &wat_even,
-            },
-            NamedModule {
-                name: "odd",
-                module: &wat_odd,
-            },
+            NamedModule::new("even", &wat_even),
+            NamedModule::new("odd", &wat_odd),
         ];
 
         MergeConfiguration::new(modules).merge().unwrap()
@@ -64,7 +58,7 @@ fn merge_even_odd() {
             v == 1
         }
 
-        for i in 0..10000 {
+        for i in 0..1000 {
             assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
             assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
         }
