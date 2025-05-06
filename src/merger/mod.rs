@@ -1,17 +1,14 @@
-use std::collections::HashMap;
-
-use walrus::{DataKind, ElementItems, ExportItem, GlobalKind, ImportKind, LocalId, Module, Table};
-use walrus::{FunctionBuilder, FunctionId, FunctionKind};
+use walrus::{
+    DataKind, ElementItems, ExportItem, FunctionBuilder, FunctionId, FunctionKind, GlobalKind,
+    ImportKind, Module, Table,
+};
 
 use crate::error::Error;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::FunctionImportSpecification;
-use crate::resolver::FunctionSpecification;
-use crate::resolver::ModuleName;
-use crate::resolver::Resolved;
-use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
-use crate::resolver::identified_resolution_schema::{MergedExport, MergedImport};
-use crate::resolver::resolution_schema::BeforeFunctionIndex;
+use crate::resolver::identified_resolution_schema::{
+    MergedExport, MergedImport, OrderedResolutionSchema,
+};
+use crate::resolver::{FunctionImportSpecification, FunctionSpecification, Resolved};
 
 mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;
@@ -23,6 +20,8 @@ pub(crate) struct Merger {
     resolution_schema: OrderedResolutionSchema,
     merged: Module,
     mapping: Mapping,
+    names: Vec<(String, String)>,
+    starts: Vec<FunctionId>,
 }
 
 impl Merger {
@@ -30,13 +29,7 @@ impl Merger {
     pub(crate) fn new(resolution_schema: OrderedResolutionSchema) -> Self {
         // Create new empty Wasm module
         let mut merged = Module::default();
-
-        let mut bef_aft_mapping: HashMap<(ModuleName, BeforeFunctionIndex), FunctionId> =
-            HashMap::new();
-        let mut bef_aft_locals_mapping: HashMap<
-            (ModuleName, BeforeFunctionIndex, LocalId),
-            LocalId,
-        > = HashMap::new();
+        let mut mapping = Mapping::default();
 
         for import_specification in resolution_schema.unresolved_imports_iter() {
             let FunctionImportSpecification {
@@ -50,7 +43,7 @@ impl Merger {
             let (new_function_index, new_import_index) =
                 merged.add_import_func(&exporting_module.name, &name.name, ty);
             let _ = new_import_index;
-            bef_aft_mapping.insert(
+            mapping.function_mapping.insert(
                 (importing_module.clone(), before_index.clone()),
                 new_function_index,
             );
@@ -68,14 +61,17 @@ impl Merger {
                 .iter()
                 .map(|(old_id, ty)| {
                     let new_id = merged.locals.add(*ty);
-                    bef_aft_locals_mapping
+                    mapping
+                        .locals_mapping
                         .insert((defining_module.clone(), index.clone(), *old_id), new_id);
                     new_id
                 })
                 .collect();
             let builder = FunctionBuilder::new(&mut merged.types, ty.params(), ty.results());
             let new_function_index = builder.finish(locals, &mut merged.funcs);
-            bef_aft_mapping.insert((defining_module.clone(), index.clone()), new_function_index);
+            mapping
+                .function_mapping
+                .insert((defining_module.clone(), index.clone()), new_function_index);
         }
 
         for resolved in resolution_schema.resolved_iter() {
@@ -83,7 +79,8 @@ impl Merger {
                 export_specification,
                 resolved_imports,
             } = resolved;
-            let local_function_index = *bef_aft_mapping
+            let local_function_index = *mapping
+                .function_mapping
                 .get(&(
                     export_specification.module.name.as_str().into(),
                     export_specification.index.index.into(),
@@ -98,19 +95,19 @@ impl Merger {
                     index: before_index,
                 } = resolved_import;
                 debug_assert_eq!(exporting_module, &export_specification.module);
-                bef_aft_mapping.insert(
+                mapping.function_mapping.insert(
                     (importing_module.clone(), before_index.clone()),
                     local_function_index,
                 );
             }
         }
 
-        let mapping = Mapping::with(&bef_aft_mapping, &bef_aft_locals_mapping);
-
         Self {
             resolution_schema,
             merged,
             mapping,
+            names: vec![],
+            starts: vec![],
         }
     }
 
@@ -318,9 +315,40 @@ impl Merger {
                         }
                     }
                 }
-                ImportKind::Table(id) => todo!("{id:?}"),
-                ImportKind::Memory(id) => todo!("{id:?}"),
-                ImportKind::Global(id) => todo!("{id:?}"),
+                // What if the imported value is duplicate BUT different in shape (eg. element_ty) among multiple imports?
+                ImportKind::Table(id) => {
+                    let table = tables.get(*id);
+                    self.merged.add_import_table(
+                        &import.module,
+                        &import.name,
+                        table.table64,
+                        table.initial,
+                        table.maximum,
+                        table.element_ty,
+                    );
+                }
+                ImportKind::Memory(id) => {
+                    let memory = memories.get(*id);
+                    self.merged.add_import_memory(
+                        &import.module,
+                        &import.name,
+                        memory.shared,
+                        memory.memory64,
+                        memory.initial,
+                        memory.maximum,
+                        memory.page_size_log2,
+                    );
+                }
+                ImportKind::Global(id) => {
+                    let global = globals.get(*id);
+                    self.merged.add_import_global(
+                        &import.module,
+                        &import.name,
+                        global.ty,
+                        global.mutable,
+                        global.shared,
+                    );
+                }
             }
         }
 
@@ -433,17 +461,48 @@ impl Merger {
             }
         }
 
-        let _ = start; // TODO:
-        let _ = producers; // TODO:
-        let _ = customs; // TODO:
-        let _ = debug; // TODO:
-        let _ = name; // TODO:
-        let _ = locals; // TODO:
+        if let Some(old_start_id) = start {
+            let new_start_id = self
+                .mapping
+                .function_mapping
+                .get(&(considering_module_name.into(), old_start_id.index().into()))
+                .unwrap();
+            self.starts.push(*new_start_id);
+        }
+
+        let _ = producers; // Handled when build is called
+        let _ = locals; // Handled before, when going through first pass
+
+        let _ = customs;
+        // for (custom_id, custom_section) in customs.iter() {
+        //     let raw_custom_section = RawCustomSection {
+        //         name: custom_section.name().into(),
+        //         data: custom_section.data(ids_to_indices), // This is not available?
+        //     };
+        //     self.merged.customs.add(raw_custom_section);
+        // }
+
+        let _ = debug; // FIXME: merge DWARF info
+
+        if let Some(name) = name {
+            self.names
+                .push((considering_module_name.to_string(), name.to_string()));
+        }
 
         Ok(())
     }
 
-    pub(crate) fn build(self) -> Module {
+    pub(crate) fn build(mut self) -> Module {
+        self.merged
+            .producers
+            .add_processed_by("wasm-mergers", env!("CARGO_PKG_VERSION"));
+        let formatted: Vec<_> = self
+            .names
+            .iter()
+            .map(|(module, name)| format!("{module}::{name}"))
+            .collect();
+
+        self.merged.name = Some(formatted.join("-"));
         self.merged
     }
 }

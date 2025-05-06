@@ -16,16 +16,3 @@ pub struct Mapping {
     pub function_mapping: HashMap<(ModuleName, BeforeFunctionIndex), FunctionId>,
     pub locals_mapping: HashMap<(ModuleName, BeforeFunctionIndex, LocalId), LocalId>,
 }
-
-impl Mapping {
-    pub(crate) fn with(
-        function_mapping: &HashMap<(ModuleName, BeforeFunctionIndex), FunctionId>,
-        locals_mapping: &HashMap<(ModuleName, BeforeFunctionIndex, LocalId), LocalId>,
-    ) -> Self {
-        Self {
-            function_mapping: function_mapping.clone(),
-            locals_mapping: locals_mapping.clone(),
-            ..Default::default()
-        }
-    }
-}
