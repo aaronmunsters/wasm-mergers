@@ -5,133 +5,111 @@ use wasm_mergers::{MergeConfiguration, NamedModule};
 use wasmtime::*;
 use wat::parse_str;
 
-/*  +-----------+
-    |   func_a  |<---.
-    +-----+-----+    |
-          |          |
-          v          |
-    +-----+-----+    |
-    |   func_b  |    |
-    +-----+-----+    |
-          |          |
-          v          |
-    +-----+-----+    |
-    |   func_c  |    | [Mutual Recursion]
-    +-----+-----+    |
-          |          |
-          v          |
-    +-----+-----+    |
-    |   func_d  |    |
-    +-----+-----+    |
-          |          |
-          v          |
-    +-----+-----+    |
-    |   func_e  | ---`
-    +-----+-----+
-*/
-
-const WAT_MOD_ABCDE: &str = r#"
-(module
-  (func $func_a (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 100)) ;; Return 100 to signify done in A
-      (else (call $func_b (i32.sub (local.get $n) (i32.const 1))))))
-
-  (func $func_b (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 200)) ;; Done in B
-      (else (call $func_c (i32.sub (local.get $n) (i32.const 1))))))
-
-  (func $func_c (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 300)) ;; Done in C
-      (else (call $func_d (i32.sub (local.get $n) (i32.const 1))))))
-
-  (func $func_d (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 400)) ;; Done in D
-      (else (call $func_e (i32.sub (local.get $n) (i32.const 1))))))
-
-  (func $func_e (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 500)) ;; Done in E
-      (else (call $func_a (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_a" (func $func_a)))
-"#;
-
-const WAT_MOD_A: &str = r#"
-(module
-  (import "WAT_MOD_B" "func_b" (func $func_b (param i32) (result i32)))
-
-  (func $func_a (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 100))
-      (else (call $func_b (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_a" (func $func_a))
-)
-"#;
-
-const WAT_MOD_B: &str = r#"
-(module
-  (import "WAT_MOD_C" "func_c" (func $func_c (param i32) (result i32)))
-
-  (func $func_b (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 200))
-      (else (call $func_c (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_b" (func $func_b))
-)
-"#;
-
-const WAT_MOD_C: &str = r#"
-(module
-  (import "WAT_MOD_D" "func_d" (func $func_d (param i32) (result i32)))
-
-  (func $func_c (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 300))
-      (else (call $func_d (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_c" (func $func_c))
-)
-
-"#;
-
-const WAT_MOD_D: &str = r#"
-(module
-  (import "WAT_MOD_E" "func_e" (func $func_e (param i32) (result i32)))
-
-  (func $func_d (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 400))
-      (else (call $func_e (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_d" (func $func_d))
-)
-"#;
-
-const WAT_MOD_E: &str = r#"
-(module
-  (import "WAT_MOD_A" "func_a" (func $func_a (param i32) (result i32)))
-
-  (func $func_e (param $n i32) (result i32)
-    (if (result i32)
-      (i32.le_s (local.get $n) (i32.const 0))
-      (then (i32.const 500))
-      (else (call $func_a (i32.sub (local.get $n) (i32.const 1))))))
-  (export "func_e" (func $func_e))
-)
-"#;
-
+/// Verifies that merging a set of modules that forms a cycle
+/// of mutually recursive function calls works.
+///
+///  ```txt
+///  func_a → func_b → func_c → func_d → func_e
+///     ↑                                  |
+///     └──────────────────────────────────┘
+///          [Mutual recursion cycle]
+///  ```
 #[test]
 fn merge_even_odd() {
+    const WAT_MOD_ABCDE: &str = r#"
+      (module
+        (func $func_a (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 100)) ;; Return 100 to signify done in A
+            (else (call $func_b (i32.sub (local.get $n) (i32.const 1))))))
+
+        (func $func_b (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 200)) ;; Done in B
+            (else (call $func_c (i32.sub (local.get $n) (i32.const 1))))))
+
+        (func $func_c (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 300)) ;; Done in C
+            (else (call $func_d (i32.sub (local.get $n) (i32.const 1))))))
+
+        (func $func_d (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 400)) ;; Done in D
+            (else (call $func_e (i32.sub (local.get $n) (i32.const 1))))))
+
+        (func $func_e (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 500)) ;; Done in E
+            (else (call $func_a (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_a" (func $func_a)))
+      "#;
+
+    const WAT_MOD_A: &str = r#"
+      (module
+        (import "WAT_MOD_B" "func_b" (func $func_b (param i32) (result i32)))
+
+        (func $func_a (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 100))
+            (else (call $func_b (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_a" (func $func_a)))
+      "#;
+
+    const WAT_MOD_B: &str = r#"
+      (module
+        (import "WAT_MOD_C" "func_c" (func $func_c (param i32) (result i32)))
+
+        (func $func_b (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 200))
+            (else (call $func_c (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_b" (func $func_b)))
+      "#;
+
+    const WAT_MOD_C: &str = r#"
+      (module
+        (import "WAT_MOD_D" "func_d" (func $func_d (param i32) (result i32)))
+
+        (func $func_c (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 300))
+            (else (call $func_d (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_c" (func $func_c)))
+      "#;
+
+    const WAT_MOD_D: &str = r#"
+      (module
+        (import "WAT_MOD_E" "func_e" (func $func_e (param i32) (result i32)))
+
+        (func $func_d (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 400))
+            (else (call $func_e (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_d" (func $func_d)))
+      "#;
+
+    const WAT_MOD_E: &str = r#"
+      (module
+        (import "WAT_MOD_A" "func_a" (func $func_a (param i32) (result i32)))
+
+        (func $func_e (param $n i32) (result i32)
+          (if (result i32)
+            (i32.le_s (local.get $n) (i32.const 0))
+            (then (i32.const 500))
+            (else (call $func_a (i32.sub (local.get $n) (i32.const 1))))))
+        (export "func_e" (func $func_e)))
+      "#;
+
     let manual_merged = { parse_str(WAT_MOD_ABCDE).unwrap() };
 
     let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
