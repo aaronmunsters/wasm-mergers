@@ -22,8 +22,7 @@ use walrus_copy::WasmFunctionCopy;
 pub(crate) struct Merger {
     resolution_schema: OrderedResolutionSchema,
     merged: Module,
-    function_mapping: HashMap<(ModuleName, BeforeFunctionIndex), FunctionId>,
-    locals_mapping: HashMap<(ModuleName, BeforeFunctionIndex, LocalId), LocalId>,
+    mapping: Mapping,
 }
 
 impl Merger {
@@ -106,11 +105,12 @@ impl Merger {
             }
         }
 
+        let mapping = Mapping::with(&bef_aft_mapping, &bef_aft_locals_mapping);
+
         Self {
             resolution_schema,
             merged,
-            function_mapping: bef_aft_mapping,
-            locals_mapping: bef_aft_locals_mapping,
+            mapping,
         }
     }
 
@@ -139,7 +139,6 @@ impl Merger {
         } = considering_module;
 
         // let mut import_covered = HashSet::new();
-        let mut mapping = Mapping::with(&self.function_mapping, &self.locals_mapping);
 
         for ty in types.iter() {
             self.merged.types.add(ty.params(), ty.results());
@@ -166,7 +165,7 @@ impl Merger {
                     const_expr,
                 ),
             };
-            mapping.globals.insert(
+            self.mapping.globals.insert(
                 (considering_module_name.to_string(), global.id()),
                 new_global_id,
             );
@@ -196,7 +195,7 @@ impl Merger {
                     memory.page_size_log2,
                 ),
             };
-            mapping.memories.insert(
+            self.mapping.memories.insert(
                 (considering_module_name.to_string(), memory.id()),
                 new_memory_id,
             );
@@ -205,7 +204,8 @@ impl Merger {
         for data in data.iter() {
             let kind = match data.kind {
                 DataKind::Active { memory, offset } => DataKind::Active {
-                    memory: *mapping
+                    memory: *self
+                        .mapping
                         .memories
                         .get(&(considering_module_name.to_string(), memory))
                         .unwrap(),
@@ -214,7 +214,7 @@ impl Merger {
                 DataKind::Passive => DataKind::Passive,
             };
             let new_data_id = self.merged.data.add(kind, data.value.clone());
-            mapping.datas.insert(
+            self.mapping.datas.insert(
                 (considering_module_name.to_string(), data.id()),
                 new_data_id,
             );
@@ -226,6 +226,7 @@ impl Merger {
                     ids.iter()
                         .map(|old_function_id| {
                             *self
+                                .mapping
                                 .function_mapping
                                 .get(&(
                                     considering_module_name.into(),
@@ -238,7 +239,7 @@ impl Merger {
                 ElementItems::Expressions(_, _) => element.items.clone(),
             };
             let new_element_id = self.merged.elements.add(element.kind, items);
-            mapping.elements.insert(
+            self.mapping.elements.insert(
                 (considering_module_name.to_string(), element.id()),
                 new_element_id,
             );
@@ -274,7 +275,7 @@ impl Merger {
                     .tables
                     .add_local(*table64, *initial, *maximum, *element_ty),
             };
-            mapping.tables.insert(
+            self.mapping.tables.insert(
                 (considering_module_name.to_string(), table.id()),
                 new_table_id,
             );
@@ -282,7 +283,8 @@ impl Merger {
             let table = self.merged.tables.get_mut(new_table_id);
             table.name = name.clone();
             for old_element_id in elem_segments.iter() {
-                let new_element_id = *mapping
+                let new_element_id = *self
+                    .mapping
                     .elements
                     .get(&(considering_module_name.to_string(), *old_element_id))
                     .unwrap();
@@ -309,7 +311,8 @@ impl Merger {
                             // If it is unresolved, assert it was added in the merged output
                             let _ = import_spec; // FIXME: unused?
                             debug_assert!(
-                                self.function_mapping
+                                self.mapping
+                                    .function_mapping
                                     .contains_key(&(importing_module, before_id.index().into()))
                             );
                         }
@@ -329,6 +332,7 @@ impl Merger {
                 FunctionKind::Local(local_function) => {
                     let old_function_index = function.id();
                     let new_function_index = *self
+                        .mapping
                         .function_mapping
                         .get(&(considering_module_name.into(), function.id().index().into()))
                         .unwrap();
@@ -338,7 +342,7 @@ impl Merger {
                         &mut self.merged,
                         local_function,
                         considering_module_name.to_string(),
-                        &mapping,
+                        &self.mapping,
                         new_function_index,
                         old_function_index,
                     );
@@ -370,6 +374,7 @@ impl Merger {
                         MergedExport::Resolved => {
                             // FIXME: allow hiding resolved functions
                             let new_function_id = *self
+                                .mapping
                                 .function_mapping
                                 .get(&(considering_module_name.into(), before_id.index().into()))
                                 .unwrap();
@@ -382,6 +387,7 @@ impl Merger {
                         MergedExport::Unresolved(export_spec) => {
                             let before_index = export_spec.index;
                             let after_index = *self
+                                .mapping
                                 .function_mapping
                                 .get(&(considering_module_name.into(), before_index))
                                 .unwrap();
@@ -395,7 +401,8 @@ impl Merger {
                     }
                 }
                 ExportItem::Table(before_index) => {
-                    let new_table_id = mapping
+                    let new_table_id = self
+                        .mapping
                         .tables
                         .get(&(considering_module_name.into(), *before_index))
                         .unwrap();
@@ -404,7 +411,8 @@ impl Merger {
                         .add(&export.name, ExportItem::Table(*new_table_id));
                 }
                 ExportItem::Memory(before_index) => {
-                    let new_memory_id = mapping
+                    let new_memory_id = self
+                        .mapping
                         .memories
                         .get(&(considering_module_name.into(), *before_index))
                         .unwrap();
@@ -413,7 +421,8 @@ impl Merger {
                         .add(&export.name, ExportItem::Memory(*new_memory_id));
                 }
                 ExportItem::Global(before_index) => {
-                    let new_global_id = mapping
+                    let new_global_id = self
+                        .mapping
                         .globals
                         .get(&(considering_module_name.into(), *before_index))
                         .unwrap();
