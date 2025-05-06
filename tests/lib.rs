@@ -80,66 +80,43 @@ CASE 3: 🟣
 
 #[test]
 fn merge_even_odd() {
-    let wat_even = parse_str(WAT_EVEN).unwrap();
-    let wat_odd = parse_str(WAT_ODD).unwrap();
+    let manual_merged = { parse_str(WAT_EVEN_ODD).unwrap() };
+    let lib_merged = {
+        let wat_even = parse_str(WAT_EVEN).unwrap();
+        let wat_odd = parse_str(WAT_ODD).unwrap();
 
-    let modules: &[NamedModule<'_, &[u8]>] = &[
-        NamedModule {
-            name: "even",
-            module: &wat_even,
-        },
-        NamedModule {
-            name: "odd",
-            module: &wat_odd,
-        },
-    ];
+        let modules: &[NamedModule<'_, &[u8]>] = &[
+            NamedModule {
+                name: "even",
+                module: &wat_even,
+            },
+            NamedModule {
+                name: "odd",
+                module: &wat_odd,
+            },
+        ];
 
-    // Merge even & odd
-    let merged_wasm = MergeConfiguration::new(modules).merge().unwrap();
+        MergeConfiguration::new(modules).merge().unwrap()
+    };
 
-    // Interpret even & odd
-    let mut store = Store::<()>::default();
-    let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+    for merged_wasm in [lib_merged, manual_merged] {
+        // Interpret even & odd
+        let mut store = Store::<()>::default();
+        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    // Fetch `even` and `odd` export
-    let even = instance
-        .get_typed_func::<i32, i32>(&mut store, "even")
-        .unwrap();
+        // Fetch `even` and `odd` export
+        let even = instance
+            .get_typed_func::<i32, i32>(&mut store, "even")
+            .unwrap();
 
-    let odd = instance
-        .get_typed_func::<i32, i32>(&mut store, "odd")
-        .unwrap();
+        let odd = instance
+            .get_typed_func::<i32, i32>(&mut store, "odd")
+            .unwrap();
 
-    assert_eq!(even.call(&mut store, 12345).unwrap(), 0);
-    assert_eq!(even.call(&mut store, 12346).unwrap(), 1);
-    assert_eq!(odd.call(&mut store, 12345).unwrap(), 1);
-    assert_eq!(odd.call(&mut store, 12346).unwrap(), 0);
-}
-
-#[test]
-fn merge_even_odd_merged() {
-    let wat_odd = parse_str(WAT_EVEN_ODD).unwrap();
-
-    // Merge even & odd
-    let merged_wasm = wat_odd;
-
-    // Interpret even & odd
-    let mut store = Store::<()>::default();
-    let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
-
-    // Fetch `even` and `odd` export
-    let even = instance
-        .get_typed_func::<i32, i32>(&mut store, "even")
-        .unwrap();
-
-    let odd = instance
-        .get_typed_func::<i32, i32>(&mut store, "odd")
-        .unwrap();
-
-    assert_eq!(even.call(&mut store, 12345).unwrap(), 0);
-    assert_eq!(even.call(&mut store, 12346).unwrap(), 1);
-    assert_eq!(odd.call(&mut store, 12345).unwrap(), 1);
-    assert_eq!(odd.call(&mut store, 12346).unwrap(), 0);
+        assert_eq!(even.call(&mut store, 12345).unwrap(), 0);
+        assert_eq!(even.call(&mut store, 12346).unwrap(), 1);
+        assert_eq!(odd.call(&mut store, 12345).unwrap(), 1);
+        assert_eq!(odd.call(&mut store, 12346).unwrap(), 0);
+    }
 }
