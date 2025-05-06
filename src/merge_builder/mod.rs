@@ -104,7 +104,7 @@ impl Resolver {
     }
 
     pub(crate) fn resolve(self, modules: &[ModuleName]) -> Result<OrderedResolutionSchema, Error> {
-        let resolved = self.resolver.validate().map_err(|_| Error::Validation)?; // TODO: this could be more informative
+        let resolved = self.resolver.validate().map_err(Error::Validation)?;
         Ok(resolved.assign_identities(modules))
     }
 }

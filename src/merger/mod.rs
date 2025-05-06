@@ -1,16 +1,7 @@
 use std::collections::HashMap;
 
-use walrus::DataKind;
-use walrus::ElementItems;
-use walrus::ExportItem;
-use walrus::FunctionBuilder;
-use walrus::FunctionId;
-use walrus::FunctionKind;
-use walrus::GlobalKind;
-use walrus::ImportKind;
-use walrus::LocalId;
-use walrus::Module;
-use walrus::Table;
+use walrus::{DataKind, ElementItems, ExportItem, GlobalKind, ImportKind, LocalId, Module, Table};
+use walrus::{FunctionBuilder, FunctionId, FunctionKind};
 
 use crate::error::Error;
 use crate::named_module::NamedParsedModule;
@@ -157,7 +148,6 @@ impl Merger {
         for global in globals.iter() {
             let new_global_id = match global.kind {
                 GlobalKind::Import(id) => {
-                    // TODO: what if this could also be resolved?
                     let import = imports.get(id);
                     let (new_global_id, new_import_id) = self.merged.add_import_global(
                         &import.module,
@@ -185,7 +175,6 @@ impl Merger {
         for memory in memories.iter() {
             let new_memory_id = match memory.import {
                 Some(id) => {
-                    // TODO: what if this could also be resolved?
                     let import = imports.get(id);
                     let (new_memory_id, new_import_id) = self.merged.add_import_memory(
                         &import.module,
@@ -262,8 +251,8 @@ impl Merger {
                 maximum,
                 element_ty,
                 import,
-                elem_segments: _,
-                name: _,
+                elem_segments,
+                name,
                 ..
             } = table;
             let new_table_id = match import {
@@ -289,6 +278,16 @@ impl Merger {
                 (considering_module_name.to_string(), table.id()),
                 new_table_id,
             );
+
+            let table = self.merged.tables.get_mut(new_table_id);
+            table.name = name.clone();
+            for old_element_id in elem_segments.iter() {
+                let new_element_id = *mapping
+                    .elements
+                    .get(&(considering_module_name.to_string(), *old_element_id))
+                    .unwrap();
+                table.elem_segments.insert(new_element_id);
+            }
         }
 
         for import in imports.iter() {
@@ -361,7 +360,7 @@ impl Merger {
         for export in exports.iter() {
             match &export.item {
                 ExportItem::Function(before_id) => {
-                    let _ = before_id; // TODO: double check, but I do not think this is needed anymore ...
+                    let _ = before_id;
                     let exporting_module = considering_module_name.into();
                     let function_name = export.name.as_str().into();
                     match self
@@ -377,7 +376,7 @@ impl Merger {
                             let export_id = self
                                 .merged
                                 .exports
-                                .add(&function_name.name, ExportItem::Function(new_function_id));
+                                .add(&export.name, ExportItem::Function(new_function_id));
                             let _ = export_id; // The export ID is not of interest for this module
                         }
                         MergedExport::Unresolved(export_spec) => {
@@ -389,15 +388,39 @@ impl Merger {
                             let export_id = self
                                 .merged
                                 .exports
-                                .add(&function_name.name, ExportItem::Function(after_index));
+                                .add(&export.name, ExportItem::Function(after_index));
                             let _ = export_id; // The export ID is not of interest for this module
                             debug_assert_eq!(export_spec.name, function_name);
                         }
                     }
                 }
-                ExportItem::Table(id) => todo!("{id:?}"),
-                ExportItem::Memory(id) => todo!("{id:?}"),
-                ExportItem::Global(id) => todo!("{id:?}"),
+                ExportItem::Table(before_index) => {
+                    let new_table_id = mapping
+                        .tables
+                        .get(&(considering_module_name.into(), *before_index))
+                        .unwrap();
+                    self.merged
+                        .exports
+                        .add(&export.name, ExportItem::Table(*new_table_id));
+                }
+                ExportItem::Memory(before_index) => {
+                    let new_memory_id = mapping
+                        .memories
+                        .get(&(considering_module_name.into(), *before_index))
+                        .unwrap();
+                    self.merged
+                        .exports
+                        .add(&export.name, ExportItem::Memory(*new_memory_id));
+                }
+                ExportItem::Global(before_index) => {
+                    let new_global_id = mapping
+                        .globals
+                        .get(&(considering_module_name.into(), *before_index))
+                        .unwrap();
+                    self.merged
+                        .exports
+                        .add(&export.name, ExportItem::Global(*new_global_id));
+                }
             }
         }
 
