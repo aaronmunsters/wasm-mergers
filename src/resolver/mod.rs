@@ -2,7 +2,7 @@ use derive_more::{From, FromStr, Into};
 use std::{collections::HashSet, hash::Hash};
 use walrus::{LocalId, TypeId, ValType};
 
-pub(crate) mod identified_resolution_schema; // TODO: enable / remove
+pub(crate) mod identified_resolution_schema;
 pub(crate) mod resolution_schema;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
