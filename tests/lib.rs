@@ -6,78 +6,6 @@ const WAT_ODD: &str = include_str!("odd.wat");
 const WAT_EVEN: &str = include_str!("even.wat");
 const WAT_EVEN_ODD: &str = include_str!("even_odd.wat");
 
-// A test would be:
-// Have a set of 10 or more modules that have an interconnecting dependency.
-// Then go over all partitions of this collection
-// Per partition {Par}, let {Per} be a permutation of {Par}
-// for every per, let result be the fold of merging
-// test that all merges are correct
-// INPUT {a,b,c}
-// OUTPUT {({a,b,c}), ({a}, {b}, {c}), ({a, b}, {c}), ({a, c}, {b}), ({a}, {b, c})}
-
-// Package of interest: partitions = { version = "0.2" }
-
-// Another way would be to 'split' modules eg. the benchmark into multiple
-// variants ...
-
-/*
-CASE 1: 🟠
-(mod A
-    (def 0 ...)
-    (export 0 as "a" ...))
-
-(mod B
-    (import "a" as $a ...)
-    (export $a as "z" ...))
-
-(mod C
-    (import "z" as $z ...)
-    (call $z))
-*/
-
-/*
-CASE 2: 🔴
-(mod A
-    (import "z" as $z ...)
-    (def 0 ...)
-    (export 0 as "a" ...)
-    (call $z))
-
-(mod B
-    (import "a" as $a ...)
-    (export $a as "z" ...))
-*/
-
-/*
-CASE 3: 🟣
-        (mod
-            (import "a" as 0)
-            (import "b" as 1)
-            (import "c" as 2)
-            (def 3 as "d" ...call-0...)
-            (def 4 as "e" ...call-1...))
-
-        (mod
-            (def 0 as "a" ...)
-            (def 1 as "a" ...)
-            (export "a" as 0)
-            (export "b" as 1))
-
-        (mod
-            (import "b" as 0)
-            (def 1 as "f" ...call-0...))
-
-        ==> Merged:
-
-        (mod
-            (def 0 as "a" ...)
-            (def 1 as "b" ...)
-            (import "c" as 2)
-            (def 3 as "d" ...call-0...)
-            (def 4 as "e ...call-1...)
-            (def 5 as "f" ...call-1...))
-        */
-
 #[test]
 fn merge_even_odd() {
     let manual_merged = { parse_str(WAT_EVEN_ODD).unwrap() };
@@ -99,6 +27,23 @@ fn merge_even_odd() {
         MergeConfiguration::new(modules).merge().unwrap()
     };
 
+    // Structural assertion
+    {
+        let manual_merged_len = manual_merged.len() as f64;
+        let lib_merged_len = lib_merged.len() as f64;
+        let ratio = manual_merged_len / lib_merged_len;
+        assert!(
+            ratio >= 0.5 && ratio <= 1.5,
+            "Lengths differ by more than 50%: manual = {manual_merged_len}, lib = {lib_merged_len}",
+        );
+    }
+
+    #[rustfmt::skip]
+    fn r_even(v: i32) -> bool { v % 2 == 0 }
+    #[rustfmt::skip]
+    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+
+    // Behavioral assertion
     for merged_wasm in [lib_merged, manual_merged] {
         // Interpret even & odd
         let mut store = Store::<()>::default();
@@ -114,9 +59,14 @@ fn merge_even_odd() {
             .get_typed_func::<i32, i32>(&mut store, "odd")
             .unwrap();
 
-        assert_eq!(even.call(&mut store, 12345).unwrap(), 0);
-        assert_eq!(even.call(&mut store, 12346).unwrap(), 1);
-        assert_eq!(odd.call(&mut store, 12345).unwrap(), 1);
-        assert_eq!(odd.call(&mut store, 12346).unwrap(), 0);
+        fn to_bool(v: i32) -> bool {
+            assert!(v == 0 || v == 1);
+            v == 1
+        }
+
+        for i in 0..10000 {
+            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
+            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+        }
     }
 }
