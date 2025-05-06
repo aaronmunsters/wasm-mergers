@@ -17,13 +17,10 @@ impl FuncType {
     pub(crate) fn from_types(id: TypeId, types: &walrus::ModuleTypes) -> Self {
         let ty = types.get(id);
 
-        let params: Vec<_> = ty.params().iter().map(Clone::clone).collect();
-        let results: Vec<_> = ty.results().iter().map(Clone::clone).collect();
+        let params = ty.params().iter().copied().collect::<Box<[_]>>();
+        let results = ty.results().iter().copied().collect::<Box<[_]>>();
 
-        Self {
-            params: params.into_boxed_slice(),
-            results: results.into_boxed_slice(),
-        }
+        Self { params, results }
     }
 
     #[must_use]
