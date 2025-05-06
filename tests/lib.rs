@@ -2,9 +2,67 @@ use wasm_mergers::{MergeConfiguration, NamedModule};
 use wasmtime::*;
 use wat::parse_str;
 
-const WAT_ODD: &str = include_str!("odd.wat");
-const WAT_EVEN: &str = include_str!("even.wat");
-const WAT_EVEN_ODD: &str = include_str!("even_odd.wat");
+const WAT_ODD: &str = r#"
+(module
+  (import "even" "even" (func $even (param i32) (result i32)))
+  (export "odd" (func $odd))
+  (func $odd (param $0 i32) (result i32)
+    local.get $0
+    i32.eqz
+    if
+    i32.const 0
+    return
+    end
+    local.get $0
+    i32.const 1
+    i32.sub
+    call $even))
+"#;
+
+const WAT_EVEN: &str = r#"
+(module
+  (import "odd" "odd" (func $odd (param i32) (result i32)))
+  (export "even" (func $even))
+  (func $even (param $0 i32) (result i32)
+    local.get $0
+    i32.eqz
+    if
+    i32.const 1
+    return
+    end
+    local.get $0
+    i32.const 1
+    i32.sub
+    call $odd))
+"#;
+
+const WAT_EVEN_ODD: &str = r#"
+(module
+  (func $even (param $0 i32) (result i32)
+    local.get $0
+    i32.eqz
+    if
+    i32.const 1
+    return
+    end
+    local.get $0
+    i32.const 1
+    i32.sub
+    call $odd)
+  (func $odd (param $0 i32) (result i32)
+    local.get $0
+    i32.eqz
+    if
+    i32.const 0
+    return
+    end
+    local.get $0
+    i32.const 1
+    i32.sub
+    call $even)
+  (export "even" (func $even))
+  (export "odd" (func $odd)))
+"#;
 
 #[test]
 fn merge_even_odd() {
