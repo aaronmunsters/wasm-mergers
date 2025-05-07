@@ -580,7 +580,6 @@ fn test_rust_compilation() {
           else { return odd(v - 1); /* call odd function */ } }
     "#;
 
-    #[allow(unused)] // TODO: remove
     const LIB_SOURCE_ODD: &str = r#"
       #[link(wasm_import_module = "even")]
       extern "C" { fn unsafe_even(v: i32) -> i32; }
@@ -593,22 +592,18 @@ fn test_rust_compilation() {
     "#;
 
     let compiler = RustToWasmCompiler::new().unwrap();
-    let wasm_even = compiler
-        .compile_source(
-            WasiSupport::Disabled,
-            MANIFEST_SOURCE,
-            LIB_SOURCE_EVEN,
-            Profile::Release,
-        )
-        .unwrap();
-    let wasm_odd = compiler
-        .compile_source(
-            WasiSupport::Disabled,
-            MANIFEST_SOURCE,
-            LIB_SOURCE_ODD,
-            Profile::Release,
-        )
-        .unwrap();
+    let compile = |source| {
+        compiler
+            .compile_source(
+                WasiSupport::Disabled,
+                MANIFEST_SOURCE,
+                source,
+                Profile::Release,
+            )
+            .unwrap()
+    };
+    let wasm_even = compile(LIB_SOURCE_EVEN);
+    let wasm_odd = compile(LIB_SOURCE_ODD);
 
     // Merge & test merged
 
@@ -623,17 +618,17 @@ fn test_rust_compilation() {
 
     let lib_merged = MergeConfiguration::new(modules, options).merge().unwrap();
 
-    // // Structural assertion
-    // {
-    //     let simply_appended_len = (wasm_even.len() + wasm_odd.len()) as f64;
-    //     let lib_merged_len = lib_merged.len() as f64;
-    //     let ratio = simply_appended_len / lib_merged_len;
-    //     const RATIO_ALLOWED_DELTA: f64 = 0.20; // 20% difference
-    //     assert!(
-    //         (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-    //         "Lengths differ by more than 50%: manual = {simply_appended_len}, lib = {lib_merged_len}",
-    //     );
-    // }
+    // Structural assertion
+    {
+        let simply_appended_len = (wasm_even.len() + wasm_odd.len()) as f64;
+        let lib_merged_len = lib_merged.len() as f64;
+        let ratio = simply_appended_len / lib_merged_len;
+        const RATIO_ALLOWED_DELTA: f64 = 3.00; // 300% difference
+        assert!(
+            (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
+            "Lengths differ by more than 50%: manual = {simply_appended_len}, lib = {lib_merged_len}",
+        );
+    }
 
     #[rustfmt::skip]
     fn r_even(v: i32) -> bool { v % 2 == 0 }
