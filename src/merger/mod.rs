@@ -4,6 +4,7 @@ use walrus::{
 };
 
 use crate::error::Error;
+use crate::merge_options::MergeOptions;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::identified_resolution_schema::{
     MergedExport, MergedImport, OrderedResolutionSchema,
@@ -20,6 +21,7 @@ mod walrus_copy;
 use walrus_copy::WasmFunctionCopy;
 
 pub(crate) struct Merger {
+    options: MergeOptions,
     resolution_schema: OrderedResolutionSchema,
     merged: Module,
     mapping: Mapping,
@@ -29,7 +31,7 @@ pub(crate) struct Merger {
 
 impl Merger {
     #[must_use]
-    pub(crate) fn new(resolution_schema: OrderedResolutionSchema) -> Self {
+    pub(crate) fn new(resolution_schema: OrderedResolutionSchema, options: MergeOptions) -> Self {
         // Create new empty Wasm module
         let mut merged = Module::default();
         let mut mapping = Mapping::default();
@@ -111,6 +113,7 @@ impl Merger {
             mapping,
             names: vec![],
             starts: vec![],
+            options,
         }
     }
 
@@ -425,6 +428,9 @@ impl Merger {
 
         for export in exports.iter() {
             match &export.item {
+                // FIXME: If the function can be resolved, it could be hidden
+                //        If the function cannot be resolved, & it name-clashes
+                //        with another function ... then?
                 ExportItem::Function(before_id) => {
                     let exporting_module = considering_module_name.into();
                     let function_name = export.name.as_str().into();
@@ -462,34 +468,97 @@ impl Merger {
                     }
                 }
                 ExportItem::Table(before_index) => {
-                    let new_table_id = self
-                        .mapping
-                        .tables
-                        .get(&(considering_module_name.into(), Before(*before_index)))
-                        .unwrap();
-                    self.merged
-                        .exports
-                        .add(&export.name, ExportItem::Table(*new_table_id));
+                    let duplicate_table_export =
+                        self.merged.exports.iter().find(|existing_export| {
+                            existing_export.name == export.name
+                                && matches!(existing_export.item, ExportItem::Table(_))
+                        });
+                    match duplicate_table_export {
+                        Some(duplicate_table_export) => todo!("{duplicate_table_export:?}"),
+                        None => {
+                            let new_table_id = self
+                                .mapping
+                                .tables
+                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .unwrap();
+                            self.merged
+                                .exports
+                                .add(&export.name, ExportItem::Table(*new_table_id));
+                        }
+                    };
                 }
                 ExportItem::Memory(before_index) => {
-                    let new_memory_id = self
-                        .mapping
-                        .memories
-                        .get(&(considering_module_name.into(), Before(*before_index)))
-                        .unwrap();
-                    self.merged
-                        .exports
-                        .add(&export.name, ExportItem::Memory(*new_memory_id));
+                    let duplicate_memory_export =
+                        self.merged.exports.iter().find(|existing_export| {
+                            existing_export.name == export.name
+                                && matches!(existing_export.item, ExportItem::Memory(_))
+                        });
+                    match duplicate_memory_export {
+                        Some(duplicate_memory_export) => {
+                            if self.options.rename_duplicate_exports {
+                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let new_memory_id = self
+                                    .mapping
+                                    .memories
+                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .unwrap();
+                                self.merged
+                                    .exports
+                                    .add(&renamed, ExportItem::Memory(*new_memory_id));
+                            } else {
+                                // TODO: nicer reporting with the duplicate_memory_export
+                                let _ = duplicate_memory_export;
+                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                            }
+                        }
+                        None => {
+                            let new_memory_id = self
+                                .mapping
+                                .memories
+                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .unwrap();
+                            self.merged
+                                .exports
+                                .add(&export.name, ExportItem::Memory(*new_memory_id));
+                        }
+                    }
                 }
+                // TODO: code dupe with other export forms
                 ExportItem::Global(before_index) => {
-                    let new_global_id = self
-                        .mapping
-                        .globals
-                        .get(&(considering_module_name.into(), Before(*before_index)))
-                        .unwrap();
-                    self.merged
-                        .exports
-                        .add(&export.name, ExportItem::Global(*new_global_id));
+                    let duplicate_global_export =
+                        self.merged.exports.iter().find(|existing_export| {
+                            existing_export.name == export.name
+                                && matches!(existing_export.item, ExportItem::Global(_))
+                        });
+                    match duplicate_global_export {
+                        Some(duplicate_global_export) => {
+                            if self.options.rename_duplicate_exports {
+                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let new_global_id = self
+                                    .mapping
+                                    .globals
+                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .unwrap();
+                                self.merged
+                                    .exports
+                                    .add(&renamed, ExportItem::Global(*new_global_id));
+                            } else {
+                                // TODO: nicer reporting with the duplicate_global_export
+                                let _ = duplicate_global_export;
+                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                            }
+                        }
+                        None => {
+                            let new_global_id = self
+                                .mapping
+                                .globals
+                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .unwrap();
+                            self.merged
+                                .exports
+                                .add(&export.name, ExportItem::Global(*new_global_id));
+                        }
+                    }
                 }
             }
         }

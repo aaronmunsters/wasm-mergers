@@ -1,7 +1,7 @@
 use std::iter::once;
 
 use itertools::Itertools;
-use wasm_mergers::{MergeConfiguration, NamedModule};
+use wasm_mergers::{MergeConfiguration, MergeOptions, NamedModule};
 use wasmtime::*;
 use wat::parse_str;
 
@@ -91,7 +91,9 @@ fn merge_even_odd() {
             &NamedModule::new("odd", &wat_odd),
         ];
 
-        MergeConfiguration::new(modules).merge().unwrap()
+        MergeConfiguration::new(modules, MergeOptions::default())
+            .merge()
+            .unwrap()
     };
 
     // Structural assertion
@@ -265,7 +267,9 @@ fn merge_cycle_chain() {
         .permutations(modules.len())
         .map(|perm| {
             let perm: Box<[_]> = perm.into_iter().copied().collect();
-            MergeConfiguration::new(&perm).merge().unwrap()
+            MergeConfiguration::new(&perm, MergeOptions::default())
+                .merge()
+                .unwrap()
         })
         .chain(once(manual_merged.clone()))
     {
@@ -348,7 +352,7 @@ fn merge_pass_through_module() {
         &NamedModule::new("c", &wat_c),
     ];
 
-    let merged = MergeConfiguration::new(modules)
+    let merged = MergeConfiguration::new(modules, MergeOptions::default())
         .merge()
         .expect("Merge failed");
 
@@ -431,7 +435,7 @@ fn merge_cross_module_fibonacci() {
     ];
 
     // Merge the modules
-    let merged_wasm = MergeConfiguration::new(modules)
+    let merged_wasm = MergeConfiguration::new(modules, MergeOptions::default())
         .merge()
         .expect("Failed to merge modules");
 
@@ -533,7 +537,9 @@ fn composition_of_cross_deps() {
         &NamedModule::new("e", &wat_e),
     ];
 
-    let merged = MergeConfiguration::new(modules).merge().unwrap();
+    let merged = MergeConfiguration::new(modules, MergeOptions::default())
+        .merge()
+        .unwrap();
 
     // Instantiate merged module (should be self-contained)
     let mut store = Store::<()>::default();
@@ -550,4 +556,114 @@ fn composition_of_cross_deps() {
     let e = || ((a() * 11) * (b() * 13)) * ((c() * 17) * (d() * 23));
 
     assert_eq!(actual_e.call(&mut store, ()).unwrap(), e());
+}
+
+/// Rust compilation with memory modules
+#[test]
+fn test_rust_compilation() {
+    use rust_to_wasm_compiler::{Profile, RustToWasmCompiler, WasiSupport};
+
+    const MANIFEST_SOURCE: &str = r#"
+      package.name = "test_rust_compilation_1"
+      lib.crate-type = ["cdylib"]
+      [workspace]
+    "#;
+
+    const LIB_SOURCE_EVEN: &str = r#"
+      #[link(wasm_import_module = "odd")]
+      extern "C" { fn unsafe_odd(v: i32) -> i32; }
+      fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
+
+      #[no_mangle] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
+      #[no_mangle] pub extern "C" fn even(v: i32) -> i32 {
+          if v == 0 { return 1; /* true (even) */ }
+          else { return odd(v - 1); /* call odd function */ } }
+    "#;
+
+    #[allow(unused)] // TODO: remove
+    const LIB_SOURCE_ODD: &str = r#"
+      #[link(wasm_import_module = "even")]
+      extern "C" { fn unsafe_even(v: i32) -> i32; }
+      fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
+      
+      #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
+      #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
+          if v == 0 { return 0; /* false (not odd) */ }
+          else { return even(v - 1); /* call even function */ } }
+    "#;
+
+    let compiler = RustToWasmCompiler::new().unwrap();
+    let wasm_even = compiler
+        .compile_source(
+            WasiSupport::Disabled,
+            MANIFEST_SOURCE,
+            LIB_SOURCE_EVEN,
+            Profile::Release,
+        )
+        .unwrap();
+    let wasm_odd = compiler
+        .compile_source(
+            WasiSupport::Disabled,
+            MANIFEST_SOURCE,
+            LIB_SOURCE_ODD,
+            Profile::Release,
+        )
+        .unwrap();
+
+    // Merge & test merged
+
+    let modules: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("even", &wasm_even),
+        &NamedModule::new("odd", &wasm_odd),
+    ];
+
+    let options = MergeOptions {
+        rename_duplicate_exports: true,
+    };
+
+    let lib_merged = MergeConfiguration::new(modules, options).merge().unwrap();
+
+    // // Structural assertion
+    // {
+    //     let simply_appended_len = (wasm_even.len() + wasm_odd.len()) as f64;
+    //     let lib_merged_len = lib_merged.len() as f64;
+    //     let ratio = simply_appended_len / lib_merged_len;
+    //     const RATIO_ALLOWED_DELTA: f64 = 0.20; // 20% difference
+    //     assert!(
+    //         (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
+    //         "Lengths differ by more than 50%: manual = {simply_appended_len}, lib = {lib_merged_len}",
+    //     );
+    // }
+
+    #[rustfmt::skip]
+    fn r_even(v: i32) -> bool { v % 2 == 0 }
+    #[rustfmt::skip]
+    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+
+    // Behavioral assertion
+    for merged_wasm in [lib_merged] {
+        // Interpret even & odd
+        let mut store = Store::<()>::default();
+        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+
+        // Fetch `even` and `odd` export
+        let even = instance
+            .get_typed_func::<i32, i32>(&mut store, "even")
+            .unwrap();
+
+        let odd = instance
+            .get_typed_func::<i32, i32>(&mut store, "odd")
+            .unwrap();
+
+        fn to_bool(v: i32) -> bool {
+            assert!(v == 0 || v == 1);
+            v == 1
+        }
+
+        for i in 0..1000 {
+            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
+            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+        }
+    }
 }

@@ -6,4 +6,6 @@ pub enum Error {
     ComponentModelUnsupported(String),
     #[error("Validation error")]
     Validation(Box<ValidationFailure>),
+    #[error("Duplicate name export for same type: {0}")]
+    DuplicateNameExport(String),
 }
