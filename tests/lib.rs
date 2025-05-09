@@ -141,6 +141,25 @@ fn merge_even_odd() {
     }
 }
 
+#[test]
+fn test_earmark() {
+    const NEEDLE: &[u8] = "wasm-mergers".as_bytes();
+    const NEEDLE_LEN: usize = NEEDLE.len();
+    const M: &str = "(module)";
+    wasm_mergers::MergeConfiguration::new(
+        &[
+            &NamedModule::new("A", &wat::parse_str(M).unwrap()),
+            &NamedModule::new("B", &wat::parse_str(M).unwrap()),
+        ],
+        MergeOptions::default(),
+    )
+    .merge()
+    .unwrap()
+    .windows(NEEDLE_LEN)
+    .position(|w| NEEDLE == w)
+    .unwrap();
+}
+
 /// Verifies that merging a set of modules that forms a cycle
 /// of mutually recursive function calls works.
 ///
