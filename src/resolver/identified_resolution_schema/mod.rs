@@ -11,17 +11,6 @@ use super::ResolutionSchema;
 use super::Resolved;
 use super::resolution_schema::Before;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub(crate) struct AfterFunctionIndex {
-    pub(crate) index: usize,
-}
-
-impl From<usize> for AfterFunctionIndex {
-    fn from(value: usize) -> Self {
-        AfterFunctionIndex { index: value }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct OrderedResolutionSchema {
     /// An imported function that could not be matched with an exported function
