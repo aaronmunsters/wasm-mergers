@@ -538,7 +538,23 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Table(_))
                         });
                     match duplicate_table_export {
-                        Some(duplicate_table_export) => todo!("{duplicate_table_export:?}"),
+                        Some(duplicate_table_export) => {
+                            if self.options.rename_duplicate_exports {
+                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let new_table_id = self
+                                    .mapping
+                                    .tables
+                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .unwrap();
+                                self.merged
+                                    .exports
+                                    .add(&renamed, ExportItem::Table(*new_table_id));
+                            } else {
+                                // TODO: nicer reporting with the duplicate_table_export
+                                let _ = duplicate_table_export;
+                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                            }
+                        }
                         None => {
                             let new_table_id = self
                                 .mapping
