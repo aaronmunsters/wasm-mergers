@@ -684,6 +684,15 @@ impl Merger {
             .map(|(module, name)| format!("{module}::{name}"))
             .collect();
 
+        if !self.starts.is_empty() {
+            let mut builder = FunctionBuilder::new(&mut self.merged.types, &[], &[]);
+            for start in self.starts {
+                builder.func_body().call(start);
+            }
+            let merged_start = builder.finish(vec![], &mut self.merged.funcs);
+            self.merged.start = Some(merged_start);
+        }
+
         self.merged.name = Some(formatted.join("-"));
         self.merged
     }
