@@ -75,10 +75,9 @@ pub(super) struct WasmFunctionCopy<'old_module, 'new_module> {
     old_function: &'old_module LocalFunction,
 
     old_module_name: String,
-    mapping: &'old_module Mapping,
+    mapping: &'old_module mut Mapping,
 
     new_function_index: FunctionId,
-    old_function_index: FunctionId,
 
     sequence_stack: SequenceStack,
 }
@@ -97,9 +96,9 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
         new_module: &'new_module mut Module,
 
         old_function: &'old_module LocalFunction,
-
         old_module_name: String,
-        mapping: &'old_module Mapping,
+
+        mapping: &'old_module mut Mapping,
 
         new_function_index: FunctionId,
         old_function_index: FunctionId,
@@ -114,6 +113,20 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .func_body()
             .id();
 
+        for arg in &old_module
+            .funcs
+            .get(old_function_index)
+            .kind
+            .unwrap_local()
+            .args
+        {
+            debug_assert!(
+                mapping
+                    .locals
+                    .contains_key(&(old_module_name.as_str().into(), Before(*arg)))
+            );
+        }
+
         Self {
             old_module,
             new_module,
@@ -124,7 +137,6 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             mapping,
 
             new_function_index,
-            old_function_index,
 
             sequence_stack: SequenceStack::new(old_body_id, new_body_id),
         }
@@ -138,16 +150,25 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .unwrap()
     }
 
-    fn old_to_new_local_id(&self, old_id: LocalId) -> LocalId {
-        *self
+    fn old_to_new_local_id(&mut self, old_id: LocalId) -> LocalId {
+        let module = ModuleName(self.old_module_name.clone());
+        if self
             .mapping
             .locals
-            .get(&(
-                self.old_module_name.as_str().into(),
-                Before(self.old_function_index),
-                old_id,
-            ))
-            .unwrap()
+            .contains_key(&(module.clone(), Before(old_id)))
+        {
+            // Found local, retrieve
+            *self.mapping.locals.get(&(module, Before(old_id))).unwrap()
+        } else {
+            // Could not find local, include in new module & add to set
+            let old_local = self.old_module.locals.get(old_id);
+            let new_local = self.new_module.locals.add(old_local.ty());
+
+            self.mapping
+                .locals
+                .insert((module.clone(), Before(old_id)), new_local);
+            new_local
+        }
     }
 
     fn old_to_new_table_id(&self, old_id: TableId) -> TableId {

@@ -12,5 +12,5 @@ pub struct Mapping {
     pub datas: HashMap<(ModuleName, Before<DataId>), DataId>,
     pub elements: HashMap<(ModuleName, Before<ElementId>), ElementId>,
     pub funcs: HashMap<(ModuleName, Before<FunctionId>), FunctionId>,
-    pub locals: HashMap<(ModuleName, Before<FunctionId>, LocalId), LocalId>,
+    pub locals: HashMap<(ModuleName, Before<LocalId>), LocalId>,
 }

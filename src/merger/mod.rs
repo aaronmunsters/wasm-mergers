@@ -1,6 +1,6 @@
 use walrus::{
-    DataKind, ElementItems, ExportItem, FunctionBuilder, FunctionId, FunctionKind, GlobalKind,
-    ImportKind, Module, Table,
+    ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
+    FunctionKind, GlobalKind, ImportKind, Module, Table,
 };
 
 use crate::error::Error;
@@ -68,7 +68,7 @@ impl Merger {
                     let new_id = merged.locals.add(*ty);
                     mapping
                         .locals
-                        .insert((defining_module.clone(), index.clone(), *old_id), new_id);
+                        .insert((defining_module.clone(), Before(*old_id)), new_id);
                     new_id
                 })
                 .collect();
@@ -235,31 +235,6 @@ impl Merger {
             );
         }
 
-        for element in elements.iter() {
-            let items = match &element.items {
-                ElementItems::Functions(ids) => ElementItems::Functions(
-                    ids.iter()
-                        .map(|old_function_id| {
-                            *self
-                                .mapping
-                                .funcs
-                                .get(&(considering_module_name.into(), Before(*old_function_id)))
-                                .unwrap()
-                        })
-                        .collect(),
-                ),
-                ElementItems::Expressions(_, _) => element.items.clone(),
-            };
-            let new_element_id = self.merged.elements.add(element.kind, items);
-            self.mapping.elements.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(element.id()),
-                ),
-                new_element_id,
-            );
-        }
-
         for table in tables.iter() {
             let Table {
                 table64,
@@ -297,9 +272,98 @@ impl Merger {
                 ),
                 new_table_id,
             );
+            let new_table = self.merged.tables.get_mut(new_table_id);
+            new_table.name = name.clone();
+            let _ = elem_segments; // Will be copied over after all elements have been set
+        }
 
+        for element in elements.iter() {
+            let items = match &element.items {
+                ElementItems::Functions(ids) => ElementItems::Functions(
+                    ids.iter()
+                        .map(|old_function_id| {
+                            *self
+                                .mapping
+                                .funcs
+                                .get(&(considering_module_name.into(), Before(*old_function_id)))
+                                .unwrap()
+                        })
+                        .collect(),
+                ),
+                ElementItems::Expressions(refttype, const_expression) => ElementItems::Expressions(
+                    *refttype,
+                    const_expression
+                        .iter()
+                        .map(|ce| match ce {
+                            ConstExpr::Value(value) => ConstExpr::Value(*value),
+                            ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),
+                            ConstExpr::Global(id) => ConstExpr::Global(
+                                *self
+                                    .mapping
+                                    .globals
+                                    .get(&(considering_module_name.into(), Before(*id)))
+                                    .unwrap(),
+                            ),
+                            ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
+                                *self
+                                    .mapping
+                                    .funcs
+                                    .get(&(considering_module_name.into(), Before(*id)))
+                                    .unwrap(),
+                            ),
+                        })
+                        .collect(),
+                ),
+            };
+            let kind = match element.kind {
+                ElementKind::Passive => ElementKind::Passive,
+                ElementKind::Declared => ElementKind::Declared,
+                ElementKind::Active { table, offset } => {
+                    // This code is copied from above ... move to function!
+                    let table = *self
+                        .mapping
+                        .tables
+                        .get(&(considering_module_name.into(), Before(table)))
+                        .unwrap();
+                    let offset = match offset {
+                        ConstExpr::Value(value) => ConstExpr::Value(value),
+                        ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(ref_type),
+                        ConstExpr::Global(id) => ConstExpr::Global(
+                            *self
+                                .mapping
+                                .globals
+                                .get(&(considering_module_name.into(), Before(id)))
+                                .unwrap(),
+                        ),
+                        ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
+                            *self
+                                .mapping
+                                .funcs
+                                .get(&(considering_module_name.into(), Before(id)))
+                                .unwrap(),
+                        ),
+                    };
+                    ElementKind::Active { table, offset }
+                }
+            };
+            let new_element_id = self.merged.elements.add(kind, items);
+            self.mapping.elements.insert(
+                (
+                    ModuleName(considering_module_name.to_string()),
+                    Before(element.id()),
+                ),
+                new_element_id,
+            );
+        }
+
+        for table in tables.iter() {
+            let Table { elem_segments, .. } = table;
+            let new_table_id = *self
+                .mapping
+                .tables
+                .get(&(considering_module_name.into(), Before(table.id())))
+                .unwrap();
             let table = self.merged.tables.get_mut(new_table_id);
-            table.name = name.clone();
             for old_element_id in elem_segments.iter() {
                 let new_element_id = *self
                     .mapping
@@ -338,16 +402,16 @@ impl Merger {
                             } = import_spec;
 
                             // If it is unresolved, assert it was added in the merged output
-                            debug_assert_eq!(
-                                *self
-                                    .mapping
-                                    .funcs
-                                    .get(&(importing_module, Before(*before_id)))
-                                    .unwrap(),
-                                self.merged
-                                    .imports
-                                    .get_func(importing_module_name, function_name)
-                                    .unwrap()
+                            let import_id = *self
+                                .mapping
+                                .funcs
+                                .get(&(importing_module, Before(*before_id)))
+                                .unwrap();
+                            let new_import = self.merged.imports.get_imported_func(import_id);
+                            debug_assert!(
+                                new_import.is_some_and(|import| import.name == function_name
+                                    || (import.name.contains(&importing_module_name)
+                                        && import.name.contains(&function_name)))
                             );
                         }
                     }
@@ -407,7 +471,7 @@ impl Merger {
                         &mut self.merged,
                         local_function,
                         considering_module_name.to_string(),
-                        &self.mapping,
+                        &mut self.mapping,
                         new_function_index,
                         old_function_index,
                     );
