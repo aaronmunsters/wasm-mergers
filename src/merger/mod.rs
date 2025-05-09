@@ -1,6 +1,6 @@
 use walrus::{
     ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
-    FunctionKind, GlobalKind, ImportKind, Module, Table,
+    FunctionKind, GlobalKind, IdsToIndices, ImportKind, Module, Table,
 };
 
 use crate::error::Error;
@@ -639,14 +639,14 @@ impl Merger {
         let _ = producers; // Handled when build is called
         let _ = locals; // Handled before, when going through first pass
 
-        let _ = customs;
-        // for (custom_id, custom_section) in customs.iter() {
-        //     let raw_custom_section = RawCustomSection {
-        //         name: custom_section.name().into(),
-        //         data: custom_section.data(ids_to_indices), // This is not available?
-        //     };
-        //     self.merged.customs.add(raw_custom_section);
-        // }
+        for (custom_id, custom_section) in customs.iter() {
+            let _ = custom_id;
+            let name = custom_section.name().into();
+            let ids_to_idcs: IdsToIndices = walrus::IdsToIndices::default();
+            let data = custom_section.data(&ids_to_idcs).to_vec();
+            let raw_custom_section = walrus::RawCustomSection { name, data };
+            self.merged.customs.add(raw_custom_section);
+        }
 
         let _ = debug; // FIXME: merge DWARF info
 

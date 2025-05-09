@@ -662,3 +662,105 @@ fn test_rust_compilation() {
         }
     }
 }
+
+/// Rust compilation with memory modules
+#[test]
+fn test_rust_compilation_tables() {
+    use rust_to_wasm_compiler::{Profile, RustToWasmCompiler, WasiSupport};
+
+    const MANIFEST_SOURCE: &str = r#"
+      package.name = "test_rust_compilation"
+      lib.crate-type = ["cdylib"]
+      [workspace]
+    "#;
+
+    const LIB_SOURCE_EVEN: &str = r#"
+    static mut EVEN_FN_PTR: Option<extern "C" fn(i32) -> i32> = None;
+
+    #[link(wasm_import_module = "odd")]
+    extern "C" { fn unsafe_odd(v: i32) -> i32; }
+    fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
+
+    #[no_mangle] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
+    #[no_mangle] pub extern "C" fn even(v: i32) -> i32 {
+        if v == 0 { return 1; /* true (even) */ }
+        else { return odd(v - 1); /* call odd function */ } }
+
+    #[no_mangle] pub extern "C" fn install_even() {
+      unsafe { EVEN_FN_PTR = Some(unsafe_even); }
+    }
+  "#;
+
+    const LIB_SOURCE_ODD: &str = r#"
+    #[link(wasm_import_module = "even")]
+    extern "C" { fn unsafe_even(v: i32) -> i32; }
+    fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
+    
+    #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
+    #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
+        if v == 0 { return 0; /* false (not odd) */ }
+        else { return even(v - 1); /* call even function */ } }
+  "#;
+
+    let compiler = RustToWasmCompiler::new().unwrap();
+    let compile = |source| {
+        compiler
+            .compile_source(WasiSupport::Disabled, MANIFEST_SOURCE, source, Profile::Dev)
+            .unwrap()
+    };
+    let wasm_even = compile(LIB_SOURCE_EVEN);
+    let wasm_odd = compile(LIB_SOURCE_ODD);
+
+    // Merge & test merged
+
+    let modules: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("even", &wasm_even),
+        &NamedModule::new("odd", &wasm_odd),
+    ];
+
+    let options = MergeOptions {
+        rename_duplicate_exports: true,
+    };
+
+    let lib_merged = MergeConfiguration::new(modules, options).merge().unwrap();
+
+    // Structural assertion not included.
+    // FIXME: Since debug support is not enabled, we will not assert on the sizes
+
+    #[rustfmt::skip]
+    fn r_even(v: i32) -> bool { v % 2 == 0 }
+    #[rustfmt::skip]
+    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+
+    // Behavioral assertion
+    for merged_wasm in [lib_merged] {
+        // Interpret even & odd
+        let mut store = Store::<()>::default();
+        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+
+        // Fetch `even` and `odd` export
+        let even = instance
+            .get_typed_func::<i32, i32>(&mut store, "even")
+            .unwrap();
+
+        let odd = instance
+            .get_typed_func::<i32, i32>(&mut store, "odd")
+            .unwrap();
+
+        let install_even = instance
+            .get_typed_func::<(), ()>(&mut store, "install_even")
+            .unwrap();
+        install_even.call(&mut store, ()).unwrap();
+
+        fn to_bool(v: i32) -> bool {
+            assert!(v == 0 || v == 1);
+            v == 1
+        }
+
+        for i in 0..2 {
+            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
+            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+        }
+    }
+}
