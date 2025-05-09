@@ -90,10 +90,11 @@ impl Resolver {
 
         for export in considering_exports.iter() {
             if let walrus::ExportItem::Function(id) = export.item {
+                let ty = FuncType::from_types(considering_funcs.get(id).ty(), considering_types);
                 let export = FunctionExportSpecification {
                     module: (*considering_module).into(),
                     name: export.name.as_str().into(),
-                    ty: FuncType::from_types(considering_funcs.get(id).ty(), considering_types),
+                    ty,
                     index: Before::from(id),
                 };
                 self.resolver.add_export(export);
