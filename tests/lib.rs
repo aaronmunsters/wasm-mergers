@@ -564,7 +564,7 @@ fn test_rust_compilation() {
     use rust_to_wasm_compiler::{Profile, RustToWasmCompiler, WasiSupport};
 
     const MANIFEST_SOURCE: &str = r#"
-      package.name = "test_rust_compilation_1"
+      package.name = "test_rust_compilation"
       lib.crate-type = ["cdylib"]
       [workspace]
     "#;
