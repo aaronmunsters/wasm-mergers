@@ -160,6 +160,8 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             // Found local, retrieve
             *self.mapping.locals.get(&(module, Before(old_id))).unwrap()
         } else {
+            // FIXME: is this allowed by the specification? If not perhaps
+            //        report this to user of tool...
             // Could not find local, include in new module & add to set
             let old_local = self.old_module.locals.get(old_id);
             let new_local = self.new_module.locals.add(old_local.ty());
