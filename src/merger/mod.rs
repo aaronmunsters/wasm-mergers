@@ -294,24 +294,7 @@ impl Merger {
                     *refttype,
                     const_expression
                         .iter()
-                        .map(|ce| match ce {
-                            ConstExpr::Value(value) => ConstExpr::Value(*value),
-                            ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),
-                            ConstExpr::Global(id) => ConstExpr::Global(
-                                *self
-                                    .mapping
-                                    .globals
-                                    .get(&(considering_module_name.into(), Before(*id)))
-                                    .unwrap(),
-                            ),
-                            ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
-                                *self
-                                    .mapping
-                                    .funcs
-                                    .get(&(considering_module_name.into(), Before(*id)))
-                                    .unwrap(),
-                            ),
-                        })
+                        .map(|ce| ce.copy_for(self, considering_module_name.into()))
                         .collect(),
                 ),
             };
@@ -325,24 +308,7 @@ impl Merger {
                         .tables
                         .get(&(considering_module_name.into(), Before(table)))
                         .unwrap();
-                    let offset = match offset {
-                        ConstExpr::Value(value) => ConstExpr::Value(value),
-                        ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(ref_type),
-                        ConstExpr::Global(id) => ConstExpr::Global(
-                            *self
-                                .mapping
-                                .globals
-                                .get(&(considering_module_name.into(), Before(id)))
-                                .unwrap(),
-                        ),
-                        ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
-                            *self
-                                .mapping
-                                .funcs
-                                .get(&(considering_module_name.into(), Before(id)))
-                                .unwrap(),
-                        ),
-                    };
+                    let offset = offset.copy_for(self, considering_module_name.into());
                     ElementKind::Active { table, offset }
                 }
             };
@@ -695,5 +661,32 @@ impl Merger {
 
         self.merged.name = Some(formatted.join("-"));
         self.merged
+    }
+}
+
+trait CopyForMerger {
+    fn copy_for(&self, merger: &Merger, considering_module: ModuleName) -> Self;
+}
+
+impl CopyForMerger for ConstExpr {
+    fn copy_for(&self, merger: &Merger, considering_module_name: ModuleName) -> Self {
+        match self {
+            ConstExpr::Value(value) => ConstExpr::Value(*value),
+            ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),
+            ConstExpr::Global(id) => ConstExpr::Global(
+                *merger
+                    .mapping
+                    .globals
+                    .get(&(considering_module_name, Before(*id)))
+                    .unwrap(),
+            ),
+            ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
+                *merger
+                    .mapping
+                    .funcs
+                    .get(&(considering_module_name, Before(*id)))
+                    .unwrap(),
+            ),
+        }
     }
 }
