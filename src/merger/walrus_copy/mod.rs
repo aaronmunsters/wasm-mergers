@@ -74,7 +74,7 @@ pub(super) struct WasmFunctionCopy<'old_module, 'new_module> {
 
     old_function: &'old_module LocalFunction,
 
-    old_module_name: String,
+    old_module_name: ModuleName,
     mapping: &'old_module mut Mapping,
 
     new_function_index: FunctionId,
@@ -96,7 +96,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
         new_module: &'new_module mut Module,
 
         old_function: &'old_module LocalFunction,
-        old_module_name: String,
+        old_module_name: ModuleName,
 
         mapping: &'old_module mut Mapping,
 
@@ -123,7 +123,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             debug_assert!(
                 mapping
                     .locals
-                    .contains_key(&(old_module_name.as_str().into(), Before(*arg)))
+                    .contains_key(&(old_module_name.clone(), Before(*arg)))
             );
         }
 
@@ -145,20 +145,23 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
     fn old_to_new_fn_id(&self, old_id: FunctionId) -> FunctionId {
         self.mapping
             .funcs
-            .get(&(self.old_module_name.as_str().into(), Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_local_id(&mut self, old_id: LocalId) -> LocalId {
-        let module = ModuleName(self.old_module_name.clone());
         if self
             .mapping
             .locals
-            .contains_key(&(module.clone(), Before(old_id)))
+            .contains_key(&(self.old_module_name.clone(), Before(old_id)))
         {
             // Found local, retrieve
-            *self.mapping.locals.get(&(module, Before(old_id))).unwrap()
+            *self
+                .mapping
+                .locals
+                .get(&(self.old_module_name.clone(), Before(old_id)))
+                .unwrap()
         } else {
             // FIXME: is this allowed by the specification? If not perhaps
             //        report this to user of tool...
@@ -168,52 +171,47 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
 
             self.mapping
                 .locals
-                .insert((module.clone(), Before(old_id)), new_local);
+                .insert((self.old_module_name.clone(), Before(old_id)), new_local);
             new_local
         }
     }
 
     fn old_to_new_table_id(&self, old_id: TableId) -> TableId {
-        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .tables
-            .get(&(module, Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_global_id(&self, old_id: GlobalId) -> GlobalId {
-        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .globals
-            .get(&(module, Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_memory_id(&self, old_id: MemoryId) -> MemoryId {
-        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .memories
-            .get(&(module, Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_data_id(&self, old_id: DataId) -> DataId {
-        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .datas
-            .get(&(module, Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }
 
     fn old_to_new_elem_id(&self, old_id: ElementId) -> ElementId {
-        let module = ModuleName(self.old_module_name.clone());
         self.mapping
             .elements
-            .get(&(module, Before(old_id)))
+            .get(&(self.old_module_name.clone(), Before(old_id)))
             .copied()
             .unwrap()
     }

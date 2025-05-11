@@ -119,7 +119,7 @@ impl Merger {
 
     pub(crate) fn include(&mut self, module: NamedParsedModule<'_>) -> Result<(), Error> {
         let NamedParsedModule {
-            name: considering_module_name,
+            name: considering_module_name_str,
             module: considering_module,
         } = module;
         let Module {
@@ -142,6 +142,7 @@ impl Merger {
         } = considering_module;
 
         // let mut import_covered = HashSet::new();
+        let considering_module_name = ModuleName::from(considering_module_name_str);
 
         for ty in types.iter() {
             self.merged.types.add(ty.params(), ty.results());
@@ -169,10 +170,7 @@ impl Merger {
                 ),
             };
             self.mapping.globals.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(global.id()),
-                ),
+                (considering_module_name.clone(), Before(global.id())),
                 new_global_id,
             );
         }
@@ -202,10 +200,7 @@ impl Merger {
                 ),
             };
             self.mapping.memories.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(memory.id()),
-                ),
+                (considering_module_name.clone(), Before(memory.id())),
                 new_memory_id,
             );
         }
@@ -216,10 +211,7 @@ impl Merger {
                     memory: *self
                         .mapping
                         .memories
-                        .get(&(
-                            ModuleName(considering_module_name.to_string()),
-                            Before(memory),
-                        ))
+                        .get(&(considering_module_name.clone(), Before(memory)))
                         .unwrap(),
                     offset,
                 },
@@ -227,10 +219,7 @@ impl Merger {
             };
             let new_data_id = self.merged.data.add(kind, data.value.clone());
             self.mapping.datas.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(data.id()),
-                ),
+                (considering_module_name.clone(), Before(data.id())),
                 new_data_id,
             );
         }
@@ -250,7 +239,7 @@ impl Merger {
                 Some(import_id) => {
                     let import = imports.get(*import_id);
                     let (new_table_id, new_import_id) = self.merged.add_import_table(
-                        considering_module_name,
+                        considering_module_name_str,
                         &import.name,
                         *table64,
                         *initial,
@@ -266,10 +255,7 @@ impl Merger {
                     .add_local(*table64, *initial, *maximum, *element_ty),
             };
             self.mapping.tables.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(table.id()),
-                ),
+                (considering_module_name.clone(), Before(table.id())),
                 new_table_id,
             );
             let new_table = self.merged.tables.get_mut(new_table_id);
@@ -285,7 +271,7 @@ impl Merger {
                             *self
                                 .mapping
                                 .funcs
-                                .get(&(considering_module_name.into(), Before(*old_function_id)))
+                                .get(&(considering_module_name.clone(), Before(*old_function_id)))
                                 .unwrap()
                         })
                         .collect(),
@@ -294,7 +280,7 @@ impl Merger {
                     *refttype,
                     const_expression
                         .iter()
-                        .map(|ce| ce.copy_for(self, considering_module_name.into()))
+                        .map(|ce| ce.copy_for(self, considering_module_name.clone()))
                         .collect(),
                 ),
             };
@@ -306,18 +292,15 @@ impl Merger {
                     let table = *self
                         .mapping
                         .tables
-                        .get(&(considering_module_name.into(), Before(table)))
+                        .get(&(considering_module_name.clone(), Before(table)))
                         .unwrap();
-                    let offset = offset.copy_for(self, considering_module_name.into());
+                    let offset = offset.copy_for(self, considering_module_name.clone());
                     ElementKind::Active { table, offset }
                 }
             };
             let new_element_id = self.merged.elements.add(kind, items);
             self.mapping.elements.insert(
-                (
-                    ModuleName(considering_module_name.to_string()),
-                    Before(element.id()),
-                ),
+                (considering_module_name.clone(), Before(element.id())),
                 new_element_id,
             );
         }
@@ -327,17 +310,14 @@ impl Merger {
             let new_table_id = *self
                 .mapping
                 .tables
-                .get(&(considering_module_name.into(), Before(table.id())))
+                .get(&(considering_module_name.clone(), Before(table.id())))
                 .unwrap();
             let table = self.merged.tables.get_mut(new_table_id);
             for old_element_id in elem_segments.iter() {
                 let new_element_id = *self
                     .mapping
                     .elements
-                    .get(&(
-                        ModuleName(considering_module_name.to_string()),
-                        Before(*old_element_id),
-                    ))
+                    .get(&(considering_module_name.clone(), Before(*old_element_id)))
                     .unwrap();
                 table.elem_segments.insert(new_element_id);
             }
@@ -348,7 +328,7 @@ impl Merger {
                 ImportKind::Function(before_id) => {
                     // import_covered.insert(before_id);
                     let exporting_module = import.module.as_str().into();
-                    let importing_module = considering_module_name.into();
+                    let importing_module = considering_module_name.clone();
                     let function_name = import.name.as_str().into();
                     match self.resolution_schema.determine_merged_import(
                         &exporting_module,
@@ -429,14 +409,14 @@ impl Merger {
                     let new_function_index = *self
                         .mapping
                         .funcs
-                        .get(&(considering_module_name.into(), Before(old_function_index)))
+                        .get(&(considering_module_name.clone(), Before(old_function_index)))
                         .unwrap();
 
                     let mut visitor: WasmFunctionCopy<'_, '_> = WasmFunctionCopy::new(
                         &considering_module,
                         &mut self.merged,
                         local_function,
-                        considering_module_name.to_string(),
+                        considering_module_name.clone(),
                         &mut self.mapping,
                         new_function_index,
                         old_function_index,
@@ -450,7 +430,7 @@ impl Merger {
                 }
                 FunctionKind::Uninitialized(_) => {
                     return Err(Error::ComponentModelUnsupported(
-                        considering_module_name.to_string(),
+                        considering_module_name_str.to_string(),
                     ));
                 }
             }
@@ -462,7 +442,7 @@ impl Merger {
                 //        If the function cannot be resolved, & it name-clashes
                 //        with another function ... then?
                 ExportItem::Function(before_id) => {
-                    let exporting_module = considering_module_name.into();
+                    let exporting_module = considering_module_name.clone();
                     let function_name = export.name.as_str().into();
                     match self
                         .resolution_schema
@@ -473,7 +453,7 @@ impl Merger {
                             let new_function_id = *self
                                 .mapping
                                 .funcs
-                                .get(&(considering_module_name.into(), Before(*before_id)))
+                                .get(&(considering_module_name.clone(), Before(*before_id)))
                                 .unwrap();
                             let export_id = self
                                 .merged
@@ -486,7 +466,7 @@ impl Merger {
                             let after_index = *self
                                 .mapping
                                 .funcs
-                                .get(&(considering_module_name.into(), before_index))
+                                .get(&(considering_module_name.clone(), before_index))
                                 .unwrap();
                             let export_id = self
                                 .merged
@@ -506,11 +486,12 @@ impl Merger {
                     match duplicate_table_export {
                         Some(duplicate_table_export) => {
                             if self.options.rename_duplicate_exports {
-                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let renamed =
+                                    format!("{considering_module_name_str}:{}", export.name);
                                 let new_table_id = self
                                     .mapping
                                     .tables
-                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), Before(*before_index)))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -525,7 +506,7 @@ impl Merger {
                             let new_table_id = self
                                 .mapping
                                 .tables
-                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), Before(*before_index)))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -542,11 +523,12 @@ impl Merger {
                     match duplicate_memory_export {
                         Some(duplicate_memory_export) => {
                             if self.options.rename_duplicate_exports {
-                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let renamed =
+                                    format!("{considering_module_name_str}:{}", export.name);
                                 let new_memory_id = self
                                     .mapping
                                     .memories
-                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), Before(*before_index)))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -561,7 +543,7 @@ impl Merger {
                             let new_memory_id = self
                                 .mapping
                                 .memories
-                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), Before(*before_index)))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -579,11 +561,12 @@ impl Merger {
                     match duplicate_global_export {
                         Some(duplicate_global_export) => {
                             if self.options.rename_duplicate_exports {
-                                let renamed = format!("{considering_module_name}:{}", export.name);
+                                let renamed =
+                                    format!("{considering_module_name_str}:{}", export.name);
                                 let new_global_id = self
                                     .mapping
                                     .globals
-                                    .get(&(considering_module_name.into(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), Before(*before_index)))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -598,7 +581,7 @@ impl Merger {
                             let new_global_id = self
                                 .mapping
                                 .globals
-                                .get(&(considering_module_name.into(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), Before(*before_index)))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -613,7 +596,7 @@ impl Merger {
             let new_start_id = self
                 .mapping
                 .funcs
-                .get(&(considering_module_name.into(), Before(*old_start_id)))
+                .get(&(considering_module_name, Before(*old_start_id)))
                 .unwrap();
             self.starts.push(*new_start_id);
         }
@@ -634,7 +617,7 @@ impl Merger {
 
         if let Some(name) = name {
             self.names
-                .push((considering_module_name.to_string(), name.to_string()));
+                .push((considering_module_name_str.to_string(), name.to_string()));
         }
 
         Ok(())
