@@ -462,18 +462,52 @@ impl Merger {
                             let _ = export_id; // The export ID is not of interest for this module
                         }
                         MergedExport::Unresolved(export_spec) => {
-                            let before_index = export_spec.index;
-                            let after_index = *self
-                                .mapping
-                                .funcs
-                                .get(&(considering_module_name.clone(), before_index))
-                                .unwrap();
-                            let export_id = self
-                                .merged
-                                .exports
-                                .add(&export.name, ExportItem::Function(after_index));
-                            let _ = export_id; // The export ID is not of interest for this module
+                            let Before(unresolved_before_index) = export_spec.index;
+                            debug_assert_eq!(unresolved_before_index, *before_id);
                             debug_assert_eq!(export_spec.name, function_name);
+
+                            let duplicate_function_export =
+                                self.merged.exports.iter().find(|existing_export| {
+                                    existing_export.name == export.name
+                                        && matches!(existing_export.item, ExportItem::Function(_))
+                                });
+                            match duplicate_function_export {
+                                Some(duplicate_function_export) => {
+                                    if self.options.rename_duplicate_exports {
+                                        let renamed = format!(
+                                            "{considering_module_name_str}:{}",
+                                            export.name
+                                        );
+                                        let new_function_id = self
+                                            .mapping
+                                            .funcs
+                                            .get(&(
+                                                considering_module_name.clone(),
+                                                Before(*before_id),
+                                            ))
+                                            .unwrap();
+                                        self.merged
+                                            .exports
+                                            .add(&renamed, ExportItem::Function(*new_function_id));
+                                    } else {
+                                        // TODO: nicer reporting with the duplicate_function_export
+                                        let _ = duplicate_function_export;
+                                        return Err(Error::DuplicateNameExport(
+                                            export.name.clone(),
+                                        ));
+                                    }
+                                }
+                                None => {
+                                    let new_function_id = self
+                                        .mapping
+                                        .funcs
+                                        .get(&(considering_module_name.clone(), Before(*before_id)))
+                                        .unwrap();
+                                    self.merged
+                                        .exports
+                                        .add(&export.name, ExportItem::Function(*new_function_id));
+                                }
+                            };
                         }
                     }
                 }

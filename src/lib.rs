@@ -21,7 +21,7 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
     }
 
     pub fn merge(&mut self) -> anyhow::Result<Vec<u8>> {
-        let parsed_modules = self.try_parse()?;
+        let parsed_modules: Vec<NamedModule<'a, walrus::Module>> = self.try_parse()?;
 
         // First pass: consider each parsed module
         let mut resolver: Resolver = Default::default();
@@ -30,7 +30,7 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
         }
 
         // Next, with the given modules, resolve imports & exports
-        let resolution_schema = resolver.resolve(&self.owned_names())?;
+        let resolution_schema = resolver.resolve(&self.owned_names(), self.options.clone())?;
         let mut merged_builder = Merger::new(resolution_schema, self.options.clone());
 
         // Next follows the second pass in which content is copied over

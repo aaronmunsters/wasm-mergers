@@ -2,7 +2,7 @@ use derive_more::From;
 use std::collections::{HashMap, HashSet};
 use walrus::FunctionId;
 
-use crate::resolver::ModuleName;
+use crate::{MergeOptions, resolver::ModuleName};
 
 use super::{
     FunctionExportSpecification, FunctionImportSpecification, FunctionName, FunctionSpecification,
@@ -156,6 +156,7 @@ impl ResolutionSchemaBuilder {
 
     pub(crate) fn validate(
         self,
+        merge_options: MergeOptions,
     ) -> Result<ResolutionSchema<Before<FunctionId>>, Box<ValidationFailure>> {
         let Self {
             expected_imports,
@@ -221,64 +222,29 @@ impl ResolutionSchemaBuilder {
             }
         }
 
-        // Split the unresolved exports into name clashes and single unresolved ones
+        // Determine name clashes among exports
+        let name_clashes = unresolved_exports
+            .iter()
+            .cloned()
+            .map(|export| (export.name.clone(), export))
+            .fold(
+                HashMap::<_, HashSet<_>>::new(),
+                |mut acc, (export_name, export)| {
+                    acc.entry(export_name)
+                        .and_modify(|specifications| {
+                            debug_assert!(!specifications.contains(&export));
+                            specifications.insert(export.clone());
+                        })
+                        .or_insert_with(|| HashSet::from_iter(vec![export]));
+                    acc
+                },
+            )
+            .into_iter()
+            .filter(|(_, exports)| exports.len() > 1)
+            .collect::<HashMap<_, _>>();
 
-        // The names of exported functions
-        let mut export_names = HashMap::new();
-
-        // A mapping of functions names to clashing exports
-        let mut name_clashes = HashMap::new();
-
-        enum Encountered {
-            First(FunctionExportSpecification<Before<FunctionId>>),
-            Before,
-        }
-
-        for export in unresolved_exports {
-            let name = export.name.clone();
-            match export_names.remove(&export.name) {
-                Some(Encountered::First(earlier_export)) => {
-                    assert!(
-                        export_names
-                            .insert(name.clone(), Encountered::Before)
-                            .is_none()
-                    );
-                    assert!(
-                        name_clashes
-                            .insert(name, HashSet::from_iter(vec![earlier_export, export]))
-                            .is_none()
-                    );
-                }
-                Some(Encountered::Before) => {
-                    assert!(
-                        export_names
-                            .insert(name.clone(), Encountered::Before)
-                            .is_none()
-                    );
-                    name_clashes.entry(name).and_modify(
-                        |c: &mut HashSet<FunctionExportSpecification<Before<FunctionId>>>| {
-                            assert!(c.insert(export));
-                        },
-                    );
-                }
-                None => {
-                    assert!(
-                        export_names
-                            .insert(name, Encountered::First(export))
-                            .is_none()
-                    );
-                }
-            }
-        }
-
-        let unresolved_exports: HashSet<FunctionExportSpecification<Before<FunctionId>>> =
-            export_names
-                .into_values()
-                .filter_map(|e| match e {
-                    Encountered::First(f) => Some(f),
-                    Encountered::Before => None,
-                })
-                .collect();
+        // FIXME: Can the `unresolved_exports` not be a hashset to begin with?
+        let unresolved_exports = unresolved_exports.iter().cloned().collect();
 
         let resolved_schema = ResolutionSchema {
             local_function_specifications,
@@ -287,7 +253,16 @@ impl ResolutionSchemaBuilder {
             unresolved_imports,
         };
 
-        if types_mismatch.is_empty() && name_clashes.is_empty() {
+        if !types_mismatch.is_empty() {
+            return Err(ValidationFailure {
+                types_mismatch,
+                name_clashes,
+                resolved_schema,
+            }
+            .into());
+        }
+
+        if name_clashes.is_empty() || merge_options.rename_duplicate_exports {
             Ok(resolved_schema)
         } else {
             Err(ValidationFailure {

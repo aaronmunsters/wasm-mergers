@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use walrus::Module;
 
+use crate::MergeOptions;
 use crate::error::Error;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::FuncType;
@@ -107,8 +108,15 @@ impl Resolver {
         Ok(())
     }
 
-    pub(crate) fn resolve(self, modules: &[ModuleName]) -> Result<OrderedResolutionSchema, Error> {
-        let resolved = self.resolver.validate().map_err(Error::Validation)?;
+    pub(crate) fn resolve(
+        self,
+        modules: &[ModuleName],
+        merge_options: MergeOptions,
+    ) -> Result<OrderedResolutionSchema, Error> {
+        let resolved = self
+            .resolver
+            .validate(merge_options)
+            .map_err(Error::Validation)?;
         Ok(resolved.assign_identities(modules))
     }
 }
