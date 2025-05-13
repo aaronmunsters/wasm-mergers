@@ -577,6 +577,105 @@ fn composition_of_cross_deps() {
     assert_eq!(actual_e.call(&mut store, ()).unwrap(), e());
 }
 
+#[test]
+fn test_multi_memory() {
+    const WAT_A: &str = r#"
+      (module
+        ;; Define mem0 & mem1 which are both 1 page in initial size.
+        (memory $mem0 1)
+        (memory $mem1 1)
+        
+        ;; Define a function to copy over a single byte from mem0[offset] to mem1[offset]
+        (func $copy_byte_from_0_to_1 (param $offset i32)
+          ;; Load byte from mem0
+          (i32.store8 (;mem-idx=;) 1
+            (local.get $offset)
+            (i32.load8_u (;mem-idx=;) 0 (local.get $offset))))
+
+        ;; Define a function to load a single byte from mem0[offset]
+        (func $load_byte_from_0 (param $offset i32) (result i32)
+          (i32.load8_u (;mem-idx=;) 0 (local.get $offset)))
+      
+        ;; Define a function to store a single byte in mem0[offset]
+        (func $store_byte_in_0 (param $offset i32) (param $byte i32)
+          (i32.store8 (;mem-idx=;) 0 (local.get $offset) (local.get $byte)))
+
+        ;; Define a function to load a single byte from mem1[offset]
+        (func $load_byte_from_1 (param $offset i32) (result i32)
+          (i32.load8_u (;mem-idx=;) 1 (local.get $offset)))
+
+        (export "load_byte_from_0" (func $load_byte_from_0))
+        (export "store_byte_in_0" (func $store_byte_in_0))
+        (export "load_byte_from_1" (func $load_byte_from_1))
+        (export "copy_byte_from_0_to_1" (func $copy_byte_from_0_to_1)))
+    "#;
+
+    let wasm_a = parse_str(WAT_A).unwrap();
+
+    let modules: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("A", &wasm_a),
+        &NamedModule::new("B", &wasm_a),
+    ];
+
+    let merge_options = MergeOptions {
+        rename_duplicate_exports: true,
+    };
+
+    let merged = MergeConfiguration::new(modules, merge_options)
+        .merge()
+        .unwrap();
+
+    // Instantiate merged module (should be self-contained)
+    let mut store = Store::<()>::default();
+    let engine = store.engine();
+    let module = Module::from_binary(engine, &merged).unwrap();
+    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+
+    let lb0 = instance
+        .get_typed_func::<i32, i32>(&mut store, "load_byte_from_0")
+        .unwrap();
+    let sb0 = instance
+        .get_typed_func::<(i32, i32), ()>(&mut store, "store_byte_in_0")
+        .unwrap();
+    let lb1 = instance
+        .get_typed_func::<i32, i32>(&mut store, "load_byte_from_1")
+        .unwrap();
+    let cb0t1 = instance
+        .get_typed_func::<i32, ()>(&mut store, "copy_byte_from_0_to_1")
+        .unwrap();
+
+    let b_lb0 = instance
+        .get_typed_func::<i32, i32>(&mut store, "B:load_byte_from_0")
+        .unwrap();
+    let b_sb0 = instance
+        .get_typed_func::<(i32, i32), ()>(&mut store, "B:store_byte_in_0")
+        .unwrap();
+    let b_lb1 = instance
+        .get_typed_func::<i32, i32>(&mut store, "B:load_byte_from_1")
+        .unwrap();
+    let b_cb0t1 = instance
+        .get_typed_func::<i32, ()>(&mut store, "B:copy_byte_from_0_to_1")
+        .unwrap();
+
+    for actual_value in 0..=255 {
+        for offset in [0, 1, 2, 3, 5, 7, 11, 13] {
+            sb0.call(&mut store, (offset, actual_value)).unwrap();
+            cb0t1.call(&mut store, offset).unwrap();
+            let result_0 = lb0.call(&mut store, offset).unwrap();
+            let result_1 = lb1.call(&mut store, offset).unwrap();
+            assert_eq!(actual_value, result_0);
+            assert_eq!(actual_value, result_1);
+
+            b_sb0.call(&mut store, (offset, actual_value)).unwrap();
+            b_cb0t1.call(&mut store, offset).unwrap();
+            let b_result_0 = b_lb0.call(&mut store, offset).unwrap();
+            let b_result_1 = b_lb1.call(&mut store, offset).unwrap();
+            assert_eq!(actual_value, b_result_0);
+            assert_eq!(actual_value, b_result_1);
+        }
+    }
+}
+
 /// Rust compilation with memory modules
 #[test]
 fn test_rust_compilation() {
@@ -603,7 +702,7 @@ fn test_rust_compilation() {
       #[link(wasm_import_module = "even")]
       extern "C" { fn unsafe_even(v: i32) -> i32; }
       fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
-      
+
       #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
       #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
           if v == 0 { return 0; /* false (not odd) */ }
@@ -714,7 +813,7 @@ fn test_rust_compilation_tables() {
     #[link(wasm_import_module = "even")]
     extern "C" { fn unsafe_even(v: i32) -> i32; }
     fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
-    
+
     #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
     #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
         if v == 0 { return 0; /* false (not odd) */ }
