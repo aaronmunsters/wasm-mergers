@@ -5,6 +5,8 @@ use wasm_mergers::{MergeConfiguration, MergeOptions, NamedModule};
 use wasmtime::*;
 use wat::parse_str;
 
+mod wasmtime_macros; // Bring macros in scope
+
 /// Merging mutually recursive even and odd functions across modules
 ///
 /// Module Dependency Overview:
@@ -108,10 +110,8 @@ fn merge_even_odd() {
         );
     }
 
-    #[rustfmt::skip]
-    fn r_even(v: i32) -> bool { v % 2 == 0 }
-    #[rustfmt::skip]
-    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+    let r_even = |v| v % 2 == 0;
+    let r_odd = |v| !(r_even(v));
 
     // Behavioral assertion
     for merged_wasm in [lib_merged, manual_merged] {
@@ -120,14 +120,10 @@ fn merge_even_odd() {
         let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-        // Fetch `even` and `odd` export
-        let even = instance
-            .get_typed_func::<i32, i32>(&mut store, "even")
-            .unwrap();
-
-        let odd = instance
-            .get_typed_func::<i32, i32>(&mut store, "odd")
-            .unwrap();
+        declare_fns_from_wasm! { instance, store,
+           even [i32] [i32],
+           odd [i32] [i32],
+        };
 
         fn to_bool(v: i32) -> bool {
             assert!(v == 0 || v == 1);
@@ -135,8 +131,8 @@ fn merge_even_odd() {
         }
 
         for i in 0..1000 {
-            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
-            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+            assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
+            assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
         }
     }
 }
@@ -310,12 +306,10 @@ fn merge_cycle_chain() {
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
         // Fetch `even` and `odd` export
-        let func_a = instance
-            .get_typed_func::<i32, i32>(&mut store, "func_a")
-            .unwrap();
+
+        declare_fns_from_wasm! { instance, store, func_a [i32] [i32] };
 
         for i in 0..100 {
-            let result = func_a.call(&mut store, i).unwrap();
             let expected_result = match i % 5 {
                 0 => 100, // func_a will return 100 when n == 0
                 1 => 200, // func_b will return 200 when n == 1
@@ -324,7 +318,11 @@ fn merge_cycle_chain() {
                 _ => 500, // func_e will return 500 when n == 4
             };
 
-            assert_eq!(result, expected_result, "Failed for input {i}");
+            assert_eq!(
+                wasm_call!(store, func_a, i),
+                expected_result,
+                "Failed for input {i}"
+            );
         }
     }
 }
@@ -377,16 +375,11 @@ fn merge_pass_through_module() {
 
     // Instantiate & run merged module
     let mut store = Store::<()>::default();
-    let instance = {
-        let module = Module::from_binary(store.engine(), &merged).unwrap();
-        Instance::new(&mut store, &module, &[]).unwrap()
-    };
+    let module = Module::from_binary(store.engine(), &merged).unwrap();
+    let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    let run = instance
-        .get_typed_func::<(), i32>(&mut store, "run")
-        .expect("Export 'run' not found");
-
-    let result = run.call(&mut store, ()).expect("Execution failed");
+    declare_fns_from_wasm! {instance, store, run [] [i32]};
+    let result = wasm_call!(store, run);
 
     assert_eq!(result, 42, "Expected 42 from chained import, got {result}",);
 }
@@ -400,9 +393,9 @@ fn merge_pass_through_module() {
 fn merge_cross_module_fibonacci() {
     const WAT_MODULE_A: &str = r#"
       (module
-        (import "b" "b" (func $b (param i32) (result i32)))
+        (import "indirect_fib" "indirect_fib" (func $indirect_fib (param i32) (result i32)))
 
-        (func $a (param $n i32) (result i32)
+        (func $fib (param $n i32) (result i32)
           local.get $n
           i32.const 0
           i32.eq
@@ -423,24 +416,24 @@ fn merge_cross_module_fibonacci() {
           local.get $n
           i32.const 1
           i32.sub
-          call $b
+          call $indirect_fib
 
           ;; fib(n - 2)
           local.get $n
           i32.const 2
           i32.sub
-          call $b
+          call $indirect_fib
 
           ;; add results
           i32.add)
 
-        (export "a" (func $a)))
+        (export "fib" (func $fib)))
       "#;
 
     const WAT_MODULE_B: &str = r#"
       (module
-        (import "a" "a" (func $a (param i32) (result i32)))
-        (export "b" (func $a)))
+        (import "fib" "fib" (func $fib (param i32) (result i32)))
+        (export "indirect_fib" (func $fib)))
       "#;
 
     // Parse WAT source to binary
@@ -449,8 +442,8 @@ fn merge_cross_module_fibonacci() {
 
     // Prepare named modules
     let modules: &[&NamedModule<'_, &[u8]>] = &[
-        &NamedModule::new("a", &binary_a),
-        &NamedModule::new("b", &binary_b),
+        &NamedModule::new("fib", &binary_a),
+        &NamedModule::new("indirect_fib", &binary_b),
     ];
 
     // Merge the modules
@@ -464,9 +457,7 @@ fn merge_cross_module_fibonacci() {
     let instance = Instance::new(&mut store, &module, &[]).expect("Failed to instantiate module");
 
     // Get exported Fibonacci function
-    let fib = instance
-        .get_typed_func::<i32, i32>(&mut store, "a")
-        .expect("Exported function 'a' not found");
+    declare_fns_from_wasm! { instance, store, fib [i32] [i32] };
 
     // Reference implementation
     fn expected_fib(n: i32) -> i32 {
@@ -479,7 +470,7 @@ fn merge_cross_module_fibonacci() {
 
     // Run and assert behavior
     for i in 0..20 {
-        let actual = fib.call(&mut store, i).expect("Wasm call failed");
+        let actual = wasm_call!(store, fib, i);
         let expected = expected_fib(i);
         assert_eq!(
             actual, expected,
@@ -566,55 +557,60 @@ fn composition_of_cross_deps() {
     let module = Module::from_binary(engine, &merged).unwrap();
     let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    let actual_e = instance.get_typed_func::<(), i32>(&mut store, "e").unwrap();
+    declare_fns_from_wasm! { instance, store, e [] [i32] };
 
-    let a = || 2;
-    let b = || 3;
-    let c = || a() * 5;
-    let d = || b() * 7;
-    let e = || ((a() * 11) * (b() * 13)) * ((c() * 17) * (d() * 23));
+    let rs_a = || 2;
+    let rs_b = || 3;
+    let rs_c = || rs_a() * 5;
+    let rs_d = || rs_b() * 7;
+    let rs_e = || ((rs_a() * 11) * (rs_b() * 13)) * ((rs_c() * 17) * (rs_d() * 23));
 
-    assert_eq!(actual_e.call(&mut store, ()).unwrap(), e());
+    assert_eq!(wasm_call!(store, e), rs_e());
 }
 
 #[test]
 fn test_multi_memory() {
-    const WAT_A: &str = r#"
-      (module
-        ;; Define mem0 & mem1 which are both 1 page in initial size.
-        (memory $mem0 1)
-        (memory $mem1 1)
-        
-        ;; Define a function to copy over a single byte from mem0[offset] to mem1[offset]
-        (func $copy_byte_from_0_to_1 (param $offset i32)
-          ;; Load byte from mem0
-          (i32.store8 (;mem-idx=;) 1
-            (local.get $offset)
-            (i32.load8_u (;mem-idx=;) 0 (local.get $offset))))
+    let gen_wat = |prefix| {
+        format!(
+            r#"
+              (module
+                ;; Define mem0 & mem1 which are both 1 page in initial size.
+                (memory $mem0 1)
+                (memory $mem1 1)
+                
+                ;; Define a function to copy over a single byte from mem0[offset] to mem1[offset]
+                (func $copy_byte_from_0_to_1 (param $offset i32)
+                  ;; Load byte from mem0
+                  (i32.store8 (;mem-idx=;) 1
+                    (local.get $offset)
+                    (i32.load8_u (;mem-idx=;) 0 (local.get $offset))))
 
-        ;; Define a function to load a single byte from mem0[offset]
-        (func $load_byte_from_0 (param $offset i32) (result i32)
-          (i32.load8_u (;mem-idx=;) 0 (local.get $offset)))
-      
-        ;; Define a function to store a single byte in mem0[offset]
-        (func $store_byte_in_0 (param $offset i32) (param $byte i32)
-          (i32.store8 (;mem-idx=;) 0 (local.get $offset) (local.get $byte)))
+                ;; Define a function to load a single byte from mem0[offset]
+                (func $load_byte_from_0 (param $offset i32) (result i32)
+                  (i32.load8_u (;mem-idx=;) 0 (local.get $offset)))
+              
+                ;; Define a function to store a single byte in mem0[offset]
+                (func $store_byte_in_0 (param $offset i32) (param $byte i32)
+                  (i32.store8 (;mem-idx=;) 0 (local.get $offset) (local.get $byte)))
 
-        ;; Define a function to load a single byte from mem1[offset]
-        (func $load_byte_from_1 (param $offset i32) (result i32)
-          (i32.load8_u (;mem-idx=;) 1 (local.get $offset)))
+                ;; Define a function to load a single byte from mem1[offset]
+                (func $load_byte_from_1 (param $offset i32) (result i32)
+                  (i32.load8_u (;mem-idx=;) 1 (local.get $offset)))
 
-        (export "load_byte_from_0" (func $load_byte_from_0))
-        (export "store_byte_in_0" (func $store_byte_in_0))
-        (export "load_byte_from_1" (func $load_byte_from_1))
-        (export "copy_byte_from_0_to_1" (func $copy_byte_from_0_to_1)))
-    "#;
+                (export "{prefix}_load_byte_from_0" (func $load_byte_from_0))
+                (export "{prefix}_store_byte_in_0" (func $store_byte_in_0))
+                (export "{prefix}_load_byte_from_1" (func $load_byte_from_1))
+                (export "{prefix}_copy_byte_from_0_to_1" (func $copy_byte_from_0_to_1)))
+            "#
+        )
+    };
 
-    let wasm_a = parse_str(WAT_A).unwrap();
+    let wasm_a = parse_str(gen_wat("a")).unwrap();
+    let wasm_b = parse_str(gen_wat("b")).unwrap();
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("A", &wasm_a),
-        &NamedModule::new("B", &wasm_a),
+        &NamedModule::new("B", &wasm_b),
     ];
 
     let merge_options = MergeOptions {
@@ -631,47 +627,32 @@ fn test_multi_memory() {
     let module = Module::from_binary(engine, &merged).unwrap();
     let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    let lb0 = instance
-        .get_typed_func::<i32, i32>(&mut store, "load_byte_from_0")
-        .unwrap();
-    let sb0 = instance
-        .get_typed_func::<(i32, i32), ()>(&mut store, "store_byte_in_0")
-        .unwrap();
-    let lb1 = instance
-        .get_typed_func::<i32, i32>(&mut store, "load_byte_from_1")
-        .unwrap();
-    let cb0t1 = instance
-        .get_typed_func::<i32, ()>(&mut store, "copy_byte_from_0_to_1")
-        .unwrap();
-
-    let b_lb0 = instance
-        .get_typed_func::<i32, i32>(&mut store, "B:load_byte_from_0")
-        .unwrap();
-    let b_sb0 = instance
-        .get_typed_func::<(i32, i32), ()>(&mut store, "B:store_byte_in_0")
-        .unwrap();
-    let b_lb1 = instance
-        .get_typed_func::<i32, i32>(&mut store, "B:load_byte_from_1")
-        .unwrap();
-    let b_cb0t1 = instance
-        .get_typed_func::<i32, ()>(&mut store, "B:copy_byte_from_0_to_1")
-        .unwrap();
+    declare_fns_from_wasm! { instance, store,
+      // In module A
+      a_load_byte_from_0 [i32] [i32],
+      a_store_byte_in_0 [i32, i32] [],
+      a_load_byte_from_1 [i32] [i32],
+      a_copy_byte_from_0_to_1 [i32] [],
+      // In module B
+      b_load_byte_from_0 [i32] [i32],
+      b_store_byte_in_0 [i32, i32] [],
+      b_load_byte_from_1 [i32] [i32],
+      b_copy_byte_from_0_to_1 [i32] [],
+    };
 
     for actual_value in 0..=255 {
         for offset in [0, 1, 2, 3, 5, 7, 11, 13] {
-            sb0.call(&mut store, (offset, actual_value)).unwrap();
-            cb0t1.call(&mut store, offset).unwrap();
-            let result_0 = lb0.call(&mut store, offset).unwrap();
-            let result_1 = lb1.call(&mut store, offset).unwrap();
-            assert_eq!(actual_value, result_0);
-            assert_eq!(actual_value, result_1);
+            wasm_call!(store, a_store_byte_in_0, offset, actual_value);
+            wasm_call!(store, a_copy_byte_from_0_to_1, offset);
 
-            b_sb0.call(&mut store, (offset, actual_value)).unwrap();
-            b_cb0t1.call(&mut store, offset).unwrap();
-            let b_result_0 = b_lb0.call(&mut store, offset).unwrap();
-            let b_result_1 = b_lb1.call(&mut store, offset).unwrap();
-            assert_eq!(actual_value, b_result_0);
-            assert_eq!(actual_value, b_result_1);
+            wasm_call!(store, b_store_byte_in_0, offset, actual_value);
+            wasm_call!(store, b_copy_byte_from_0_to_1, offset);
+
+            assert_eq!(actual_value, wasm_call!(store, a_load_byte_from_0, offset));
+            assert_eq!(actual_value, wasm_call!(store, a_load_byte_from_1, offset));
+
+            assert_eq!(actual_value, wasm_call!(store, b_load_byte_from_0, offset));
+            assert_eq!(actual_value, wasm_call!(store, b_load_byte_from_1, offset));
         }
     }
 }
@@ -683,28 +664,29 @@ fn test_rust_compilation() {
 
     const MANIFEST_SOURCE: &str = r#"
       package.name = "test_rust_compilation"
+      package.edition = "2024"
       lib.crate-type = ["cdylib"]
       [workspace]
     "#;
 
     const LIB_SOURCE_EVEN: &str = r#"
       #[link(wasm_import_module = "odd")]
-      extern "C" { fn unsafe_odd(v: i32) -> i32; }
+      unsafe extern "C" { fn unsafe_odd(v: i32) -> i32; }
       fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
 
-      #[no_mangle] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
-      #[no_mangle] pub extern "C" fn even(v: i32) -> i32 {
+      #[unsafe(no_mangle)] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
+      #[unsafe(no_mangle)] pub extern "C" fn even(v: i32) -> i32 {
           if v == 0 { return 1; /* true (even) */ }
           else { return odd(v - 1); /* call odd function */ } }
     "#;
 
     const LIB_SOURCE_ODD: &str = r#"
       #[link(wasm_import_module = "even")]
-      extern "C" { fn unsafe_even(v: i32) -> i32; }
+      unsafe extern "C" { fn unsafe_even(v: i32) -> i32; }
       fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
 
-      #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
-      #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
+      #[unsafe(no_mangle)] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
+      #[unsafe(no_mangle)] pub extern "C" fn odd(v: i32) -> i32 {
           if v == 0 { return 0; /* false (not odd) */ }
           else { return even(v - 1); /* call even function */ } }
     "#;
@@ -748,10 +730,8 @@ fn test_rust_compilation() {
         );
     }
 
-    #[rustfmt::skip]
-    fn r_even(v: i32) -> bool { v % 2 == 0 }
-    #[rustfmt::skip]
-    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+    let r_even = |v| v % 2 == 0;
+    let r_odd = |v| !(r_even(v));
 
     // Behavioral assertion
     for merged_wasm in [lib_merged] {
@@ -761,22 +741,20 @@ fn test_rust_compilation() {
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
         // Fetch `even` and `odd` export
-        let even = instance
-            .get_typed_func::<i32, i32>(&mut store, "even")
-            .unwrap();
-
-        let odd = instance
-            .get_typed_func::<i32, i32>(&mut store, "odd")
-            .unwrap();
-
-        fn to_bool(v: i32) -> bool {
-            assert!(v == 0 || v == 1);
-            v == 1
+        declare_fns_from_wasm! {
+          instance, store,
+          even [i32] [i32],
+          odd [i32] [i32],
         }
 
+        let to_bool = |v| {
+            assert!(v == 0 || v == 1);
+            v == 1
+        };
+
         for i in 0..1000 {
-            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
-            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+            assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
+            assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
         }
     }
 }
@@ -788,6 +766,7 @@ fn test_rust_compilation_tables() {
 
     const MANIFEST_SOURCE: &str = r#"
       package.name = "test_rust_compilation"
+      package.edition = "2024"
       lib.crate-type = ["cdylib"]
       [workspace]
     "#;
@@ -796,26 +775,26 @@ fn test_rust_compilation_tables() {
     static mut EVEN_FN_PTR: Option<extern "C" fn(i32) -> i32> = None;
 
     #[link(wasm_import_module = "odd")]
-    extern "C" { fn unsafe_odd(v: i32) -> i32; }
+    unsafe extern "C" { fn unsafe_odd(v: i32) -> i32; }
     fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
 
-    #[no_mangle] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
-    #[no_mangle] pub extern "C" fn even(v: i32) -> i32 {
+    #[unsafe(no_mangle)] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
+    #[unsafe(no_mangle)] pub extern "C" fn even(v: i32) -> i32 {
         if v == 0 { return 1; /* true (even) */ }
         else { return odd(v - 1); /* call odd function */ } }
 
-    #[no_mangle] pub extern "C" fn install_even() {
+    #[unsafe(no_mangle)] pub extern "C" fn install_even() {
       unsafe { EVEN_FN_PTR = Some(unsafe_even); }
     }
   "#;
 
     const LIB_SOURCE_ODD: &str = r#"
     #[link(wasm_import_module = "even")]
-    extern "C" { fn unsafe_even(v: i32) -> i32; }
+    unsafe extern "C" { fn unsafe_even(v: i32) -> i32; }
     fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
 
-    #[no_mangle] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
-    #[no_mangle] pub extern "C" fn odd(v: i32) -> i32 {
+    #[unsafe(no_mangle)] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
+    #[unsafe(no_mangle)] pub extern "C" fn odd(v: i32) -> i32 {
         if v == 0 { return 0; /* false (not odd) */ }
         else { return even(v - 1); /* call even function */ } }
   "#;
@@ -845,10 +824,8 @@ fn test_rust_compilation_tables() {
     // Structural assertion not included.
     // FIXME: Since debug support is not enabled, we will not assert on the sizes
 
-    #[rustfmt::skip]
-    fn r_even(v: i32) -> bool { v % 2 == 0 }
-    #[rustfmt::skip]
-    fn r_odd(v: i32) -> bool { !(r_even(v)) }
+    let r_even = |v| v % 2 == 0;
+    let r_odd = |v| !(r_even(v));
 
     // Behavioral assertion
     for merged_wasm in [lib_merged] {
@@ -857,28 +834,23 @@ fn test_rust_compilation_tables() {
         let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-        // Fetch `even` and `odd` export
-        let even = instance
-            .get_typed_func::<i32, i32>(&mut store, "even")
-            .unwrap();
-
-        let odd = instance
-            .get_typed_func::<i32, i32>(&mut store, "odd")
-            .unwrap();
-
-        let install_even = instance
-            .get_typed_func::<(), ()>(&mut store, "install_even")
-            .unwrap();
-        install_even.call(&mut store, ()).unwrap();
-
-        fn to_bool(v: i32) -> bool {
-            assert!(v == 0 || v == 1);
-            v == 1
+        declare_fns_from_wasm! {
+          instance, store,
+          even [i32] [i32],
+          odd [i32] [i32],
+          install_even [] [],
         }
 
+        wasm_call!(store, install_even);
+
+        let to_bool = |v| {
+            assert!(v == 0 || v == 1);
+            v == 1
+        };
+
         for i in 0..2 {
-            assert_eq!(to_bool(even.call(&mut store, i).unwrap()), r_even(i));
-            assert_eq!(to_bool(odd.call(&mut store, i).unwrap()), r_odd(i));
+            assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
+            assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
         }
     }
 }
