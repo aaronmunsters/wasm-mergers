@@ -1,4 +1,4 @@
-mod error;
+pub mod error;
 mod merge_builder;
 mod merge_configuration;
 mod merge_options;
@@ -6,6 +6,7 @@ mod merger;
 mod named_module;
 mod resolver;
 
+use error::Error;
 use merge_builder::Resolver;
 use merger::Merger;
 
@@ -20,8 +21,9 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
         Self::new_empty_builder(modules, options)
     }
 
-    pub fn merge(&mut self) -> anyhow::Result<Vec<u8>> {
-        let parsed_modules: Vec<NamedModule<'a, walrus::Module>> = self.try_parse()?;
+    pub fn merge(&mut self) -> Result<Vec<u8>, Error> {
+        let parsed_modules: Vec<NamedModule<'a, walrus::Module>> =
+            self.try_parse().map_err(Error::Parse)?;
 
         // First pass: consider each parsed module
         let mut resolver: Resolver = Default::default();
