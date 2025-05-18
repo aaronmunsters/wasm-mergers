@@ -166,7 +166,7 @@ impl Merger {
                     global.ty,
                     global.mutable,
                     global.shared,
-                    const_expr,
+                    const_expr.copy_for(self, considering_module_name.clone()),
                 ),
             };
             self.mapping.globals.insert(
