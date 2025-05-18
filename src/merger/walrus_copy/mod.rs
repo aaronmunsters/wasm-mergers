@@ -256,8 +256,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
                 let new_type = self
                     .new_module
                     .types
-                    .find(owned_type.params(), owned_type.results())
-                    .unwrap();
+                    .add(owned_type.params(), owned_type.results());
                 let new_table_id = self.old_to_new_table_id(old_call_indirect.table);
                 self.current_sequence()
                     .call_indirect(new_type, new_table_id);
@@ -493,8 +492,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
                 let new_type = self
                     .new_module
                     .types
-                    .find(owned_type.params(), owned_type.results())
-                    .unwrap();
+                    .add(owned_type.params(), owned_type.results());
                 let mut current_sequence = self.current_sequence();
                 current_sequence.return_call_indirect(new_type, new_table_id);
             }
