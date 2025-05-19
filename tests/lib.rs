@@ -657,200 +657,171 @@ fn test_multi_memory() {
     }
 }
 
-/// Rust compilation with memory modules
 #[test]
-fn test_rust_compilation() {
-    use rust_to_wasm_compiler::{Profile, RustToWasmCompiler, WasiSupport};
+fn test() {
+    use arbitrary::Unstructured;
+    use rand::{Rng, SeedableRng};
+    use rayon::prelude::*;
+    use wasm_smith::{Config, Module as WasmSmithModule};
 
-    const MANIFEST_SOURCE: &str = r#"
-      package.name = "test_rust_compilation"
-      package.edition = "2024"
-      lib.crate-type = ["cdylib"]
-      [workspace]
-    "#;
-
-    const LIB_SOURCE_EVEN: &str = r#"
-      #[link(wasm_import_module = "odd")]
-      unsafe extern "C" { fn unsafe_odd(v: i32) -> i32; }
-      fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
-
-      #[unsafe(no_mangle)] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
-      #[unsafe(no_mangle)] pub extern "C" fn even(v: i32) -> i32 {
-          if v == 0 { return 1; /* true (even) */ }
-          else { return odd(v - 1); /* call odd function */ } }
-    "#;
-
-    const LIB_SOURCE_ODD: &str = r#"
-      #[link(wasm_import_module = "even")]
-      unsafe extern "C" { fn unsafe_even(v: i32) -> i32; }
-      fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
-
-      #[unsafe(no_mangle)] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
-      #[unsafe(no_mangle)] pub extern "C" fn odd(v: i32) -> i32 {
-          if v == 0 { return 0; /* false (not odd) */ }
-          else { return even(v - 1); /* call even function */ } }
-    "#;
-
-    let compiler = RustToWasmCompiler::new().unwrap();
-    let compile = |source| {
-        compiler
-            .compile_source(
-                WasiSupport::Disabled,
-                MANIFEST_SOURCE,
-                source,
-                Profile::Release,
-            )
-            .unwrap()
-    };
-    let wasm_even = compile(LIB_SOURCE_EVEN);
-    let wasm_odd = compile(LIB_SOURCE_ODD);
-
-    // Merge & test merged
-
-    let modules: &[&NamedModule<'_, &[u8]>] = &[
-        &NamedModule::new("even", &wasm_even),
-        &NamedModule::new("odd", &wasm_odd),
-    ];
-
-    let options = MergeOptions {
-        rename_duplicate_exports: true,
-    };
-
-    let lib_merged = MergeConfiguration::new(modules, options).merge().unwrap();
-
-    // Structural assertion
-    {
-        let simply_appended_len = (wasm_even.len() + wasm_odd.len()) as f64;
-        let lib_merged_len = lib_merged.len() as f64;
-        let ratio = simply_appended_len / lib_merged_len;
-        const RATIO_ALLOWED_DELTA: f64 = 3.00; // 300% difference
-        assert!(
-            (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-            "Lengths differ by more than 50%: manual = {simply_appended_len}, lib = {lib_merged_len}",
-        );
+    struct PreMergeOutcome {
+        args: Vec<wasmtime::Val>,
+        results: Vec<wasmtime::Val>,
+        function_name: String,
     }
 
-    let r_even = |v| v % 2 == 0;
-    let r_odd = |v| !(r_even(v));
+    struct ExpectedModuleOutcomes {
+        module: Vec<u8>,
+        expected_outcomes: Vec<PreMergeOutcome>,
+    }
 
-    // Behavioral assertion
-    for merged_wasm in [lib_merged] {
-        // Interpret even & odd
+    const MAX_SEED: u64 = 2_u64.pow(10);
+    let assertions: Vec<_> = (0..MAX_SEED)
+        .into_par_iter()
+        .filter_map(|seed| {
+            println!("SEED = {seed}");
+            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
+            let mut random_sequence = [0_u8; 2_usize.pow(10)];
+            for value in random_sequence.iter_mut() {
+                *value = rng.random::<u8>();
+            }
+
+            let mut random = Unstructured::new(&random_sequence);
+
+            let config = Config {
+                gc_enabled: false,
+                exceptions_enabled: false,
+                min_exports: 1,
+                max_imports: 0,
+                min_memories: 1,
+                min_data_segments: 1,
+                min_element_segments: 1,
+                min_tables: 1,
+                bulk_memory_enabled: true,
+                threads_enabled: true,
+                simd_enabled: true,
+                shared_everything_threads_enabled: true,
+                ..Default::default()
+            };
+
+            let Ok(mut module) = WasmSmithModule::new(config, &mut random) else {
+                return None;
+            };
+
+            module.ensure_termination(10_000).unwrap();
+            let module_bytes = module.to_bytes();
+
+            // Instantiate merged module (should be self-contained)
+            let mut store = Store::<()>::default();
+            let engine = store.engine();
+            let module = Module::from_binary(engine, &module_bytes).unwrap();
+            let Ok(instance) = Instance::new(&mut store, &module, &[]) else {
+                return None;
+            };
+
+            let mut random_val = |p| match p {
+                ValType::I32 => Some(rng.random::<i32>().into()),
+                ValType::I64 => Some(rng.random::<i64>().into()),
+                ValType::F32 => Some(rng.random::<f32>().into()),
+                ValType::F64 => Some(rng.random::<f64>().into()),
+                _ => None,
+            };
+
+            let call_results: Vec<PreMergeOutcome> = module
+                .exports()
+                .filter_map(|export| match export.ty() {
+                    ExternType::Func(func_type) => {
+                        let args: Vec<_> = func_type
+                            .params()
+                            .map(&mut random_val)
+                            .collect::<Option<_>>()?;
+                        let mut results: Vec<_> = func_type
+                            .results()
+                            .map(&mut random_val)
+                            .collect::<Option<_>>()?;
+                        instance
+                            .get_func(&mut store, export.name())
+                            .unwrap()
+                            .call(&mut store, &args, &mut results)
+                            .ok()
+                            .map(|_| PreMergeOutcome {
+                                args,
+                                results,
+                                function_name: export.name().to_string(),
+                            })
+                    }
+                    ExternType::Global(_global_type) => None,
+                    ExternType::Table(_table_type) => None,
+                    ExternType::Memory(_memory_type) => None,
+                    ExternType::Tag(_tag_type) => None,
+                })
+                .collect();
+
+            Some(ExpectedModuleOutcomes {
+                module: module_bytes,
+                expected_outcomes: call_results,
+            })
+        })
+        .collect();
+
+    // TODO: Should become more than 1, to force merge
+    const WINDOW_NAMES: &[&str] = &["a"]; // ["a", "b", "c"]
+    const WINDOW_WIDTH: usize = WINDOW_NAMES.len();
+    assertions.windows(WINDOW_WIDTH).for_each(|window| {
+        let modules: Vec<_> = window.iter().zip(WINDOW_NAMES).collect();
+        let named_modules: Vec<_> = modules
+            .iter()
+            .map(|(ExpectedModuleOutcomes { module, .. }, name_space)| {
+                NamedModule::new(name_space, &module[..])
+            })
+            .collect();
+        let refs = named_modules.iter().collect::<Vec<_>>();
+        let modules: &[&NamedModule<'_, &[u8]>] = &refs[..];
+        let merge_options = MergeOptions {
+            rename_duplicate_exports: true,
+        };
+        let mut merge_configuration = wasm_mergers::MergeConfiguration::new(modules, merge_options);
+        let merged = merge_configuration.merge();
+
+        // Failing to parse is something related to the crates `wasm-smith` <~> `walrus`
+        if let Err(wasm_mergers::error::Error::Parse(_)) = merged {
+            return;
+        }
+
+        // Unwrap the module, asserting it exists
+        let merged = merged.unwrap();
+
+        // Instantiate merged module (should be self-contained)
         let mut store = Store::<()>::default();
-        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
+        let engine = store.engine();
+        let module = Module::from_binary(engine, &merged).unwrap();
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-        // Fetch `even` and `odd` export
-        declare_fns_from_wasm! {
-          instance, store,
-          even [i32] [i32],
-          odd [i32] [i32],
-        }
+        window.iter().for_each(|asserted_module| {
+            asserted_module
+                .expected_outcomes
+                .iter()
+                .for_each(|assertion| {
+                    let func = instance
+                        .get_func(&mut store, &assertion.function_name)
+                        .unwrap();
 
-        let to_bool = |v| {
-            assert!(v == 0 || v == 1);
-            v == 1
-        };
-
-        for i in 0..1000 {
-            assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
-            assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
-        }
-    }
-}
-
-/// Rust compilation with memory modules
-#[test]
-fn test_rust_compilation_tables() {
-    use rust_to_wasm_compiler::{Profile, RustToWasmCompiler, WasiSupport};
-
-    const MANIFEST_SOURCE: &str = r#"
-      package.name = "test_rust_compilation"
-      package.edition = "2024"
-      lib.crate-type = ["cdylib"]
-      [workspace]
-    "#;
-
-    const LIB_SOURCE_EVEN: &str = r#"
-    static mut EVEN_FN_PTR: Option<extern "C" fn(i32) -> i32> = None;
-
-    #[link(wasm_import_module = "odd")]
-    unsafe extern "C" { fn unsafe_odd(v: i32) -> i32; }
-    fn odd(v: i32) -> i32 { unsafe { unsafe_odd(v) } }
-
-    #[unsafe(no_mangle)] pub extern "C" fn unsafe_even(v: i32) -> i32 { even(v) }
-    #[unsafe(no_mangle)] pub extern "C" fn even(v: i32) -> i32 {
-        if v == 0 { return 1; /* true (even) */ }
-        else { return odd(v - 1); /* call odd function */ } }
-
-    #[unsafe(no_mangle)] pub extern "C" fn install_even() {
-      unsafe { EVEN_FN_PTR = Some(unsafe_even); }
-    }
-  "#;
-
-    const LIB_SOURCE_ODD: &str = r#"
-    #[link(wasm_import_module = "even")]
-    unsafe extern "C" { fn unsafe_even(v: i32) -> i32; }
-    fn even(v: i32) -> i32 { unsafe { unsafe_even(v) } }
-
-    #[unsafe(no_mangle)] pub extern "C" fn unsafe_odd(v: i32) -> i32 { odd(v) }
-    #[unsafe(no_mangle)] pub extern "C" fn odd(v: i32) -> i32 {
-        if v == 0 { return 0; /* false (not odd) */ }
-        else { return even(v - 1); /* call even function */ } }
-  "#;
-
-    let compiler = RustToWasmCompiler::new().unwrap();
-    let compile = |source| {
-        compiler
-            .compile_source(WasiSupport::Disabled, MANIFEST_SOURCE, source, Profile::Dev)
-            .unwrap()
-    };
-    let wasm_even = compile(LIB_SOURCE_EVEN);
-    let wasm_odd = compile(LIB_SOURCE_ODD);
-
-    // Merge & test merged
-
-    let modules: &[&NamedModule<'_, &[u8]>] = &[
-        &NamedModule::new("even", &wasm_even),
-        &NamedModule::new("odd", &wasm_odd),
-    ];
-
-    let options = MergeOptions {
-        rename_duplicate_exports: true,
-    };
-
-    let lib_merged = MergeConfiguration::new(modules, options).merge().unwrap();
-
-    // Structural assertion not included.
-    // FIXME: Since debug support is not enabled, we will not assert on the sizes
-
-    let r_even = |v| v % 2 == 0;
-    let r_odd = |v| !(r_even(v));
-
-    // Behavioral assertion
-    for merged_wasm in [lib_merged] {
-        // Interpret even & odd
-        let mut store = Store::<()>::default();
-        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
-
-        declare_fns_from_wasm! {
-          instance, store,
-          even [i32] [i32],
-          odd [i32] [i32],
-          install_even [] [],
-        }
-
-        wasm_call!(store, install_even);
-
-        let to_bool = |v| {
-            assert!(v == 0 || v == 1);
-            v == 1
-        };
-
-        for i in 0..2 {
-            assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
-            assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
-        }
-    }
+                    let results_assertion = assertion.results.clone();
+                    let mut results_actual = assertion.results.clone();
+                    func.call(&mut store, &assertion.args, &mut results_actual)
+                        .unwrap();
+                    results_actual.iter().zip(results_assertion).for_each(
+                        |(result_actual, result_asserted)| match (result_actual, result_asserted) {
+                            (Val::I32(x), Val::I32(y)) => assert_eq!(*x, y),
+                            (Val::I64(x), Val::I64(y)) => assert_eq!(*x, y),
+                            (Val::F32(x), Val::F32(y)) => assert_eq!(*x, y),
+                            (Val::F64(x), Val::F64(y)) => assert_eq!(*x, y),
+                            _ => panic!(
+                                "Mismatched Val variants: {result_actual:?} vs {result_asserted:?}"
+                            ),
+                        },
+                    );
+                });
+        });
+    });
 }

@@ -13,4 +13,8 @@ derive_more = { version = "2", features = ["from", "into", "from_str"] }
 wasmtime = { version = "32.0.0" }
 wat = { version = "1.230.0" }
 itertools = "0.14.0"
-rust-to-wasm-compiler = { git = "https://github.com/aaronmunsters/rust-to-wasm-compiler", rev = "5d9ad717947f3dcd1abdcc3094af7960f5bec176" }
+wasm-smith = { version = "0.230.0" }
+arbitrary = { version = "1.4.1" }
+rand = { version = "0.9.1" }
+rand_chacha = { version = "0.9.0" }
+rayon = { version = "1.10.0" }
