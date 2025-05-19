@@ -10,10 +10,12 @@ use walrus::LocalId;
 use walrus::MemoryId;
 use walrus::Module;
 use walrus::TableId;
+use walrus::TypeId;
 use walrus::ir::Block;
 use walrus::ir::IfElse;
 use walrus::ir::InstrLocId;
 use walrus::ir::InstrSeqId;
+use walrus::ir::InstrSeqType;
 use walrus::ir::Loop;
 use walrus::ir::{Instr, Visitor};
 
@@ -216,6 +218,13 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .unwrap()
     }
 
+    fn old_to_new_type_id(&mut self, old_id: TypeId) -> TypeId {
+        let old_type = self.old_module.types.get(old_id);
+        self.new_module
+            .types
+            .add(old_type.params(), old_type.results())
+    }
+
     fn current_sequence(&mut self) -> InstrSeqBuilder<'_> {
         let current_sequence_id = self.sequence_stack.last_new();
         self.new_module
@@ -227,22 +236,31 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             .instr_seq(current_sequence_id)
     }
 
+    fn copy_over_instr_seq_ty(&mut self, old_ty: &InstrSeqType) -> InstrSeqType {
+        match old_ty {
+            InstrSeqType::Simple(val_type) => InstrSeqType::Simple(*val_type),
+            InstrSeqType::MultiValue(id) => InstrSeqType::MultiValue(self.old_to_new_type_id(*id)),
+        }
+    }
+
     fn push_instr(&mut self, instr: &Instr) {
         match instr {
             Instr::Block(old_block) => {
                 // @SCOPE_CHANGE
-                let ty = self.old_function.block(old_block.seq).ty;
+                let old_ty = self.old_function.block(old_block.seq).ty;
+                let new_ty = self.copy_over_instr_seq_ty(&old_ty);
                 let mut current_sequence = self.current_sequence();
-                let new_block_builder = current_sequence.dangling_instr_seq(ty);
+                let new_block_builder = current_sequence.dangling_instr_seq(new_ty);
                 let new_block_id = new_block_builder.id();
                 current_sequence.instr(Block { seq: new_block_id });
                 self.sequence_stack.bind(&old_block.seq, &new_block_id);
             }
             Instr::Loop(old_loop) => {
                 // @SCOPE_CHANGE
-                let ty = self.old_function.block(old_loop.seq).ty;
+                let old_ty = self.old_function.block(old_loop.seq).ty;
+                let new_ty = self.copy_over_instr_seq_ty(&old_ty);
                 let mut current_sequence = self.current_sequence();
-                let new_block_builder = current_sequence.dangling_instr_seq(ty);
+                let new_block_builder = current_sequence.dangling_instr_seq(new_ty);
                 let new_block_id = new_block_builder.id();
                 current_sequence.instr(Loop { seq: new_block_id });
                 self.sequence_stack.bind(&old_loop.seq, &new_block_id);
@@ -315,11 +333,13 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
                     alternative: old_alternative_id,
                 } = if_else;
                 let consequent_ty = self.old_function.block(*old_consequent_id).ty;
+                let consequent_ty_new = self.copy_over_instr_seq_ty(&consequent_ty);
                 let alternative_ty = self.old_function.block(*old_alternative_id).ty;
+                let alternative_ty_new = self.copy_over_instr_seq_ty(&alternative_ty);
                 let mut current_sequence = self.current_sequence();
-                let consequent_builder = current_sequence.dangling_instr_seq(consequent_ty);
+                let consequent_builder = current_sequence.dangling_instr_seq(consequent_ty_new);
                 let consequent_builder_id = consequent_builder.id();
-                let alternative_builder = current_sequence.dangling_instr_seq(alternative_ty);
+                let alternative_builder = current_sequence.dangling_instr_seq(alternative_ty_new);
                 let alternative_builder_id = alternative_builder.id();
                 self.current_sequence().instr(IfElse {
                     consequent: consequent_builder_id,
