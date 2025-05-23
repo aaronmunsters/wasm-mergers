@@ -1,4 +1,4 @@
-use derive_more::{From, FromStr, Into};
+use derive_more::From;
 use std::{collections::HashSet, hash::Hash};
 use walrus::{LocalId, TypeId, ValType};
 
@@ -34,11 +34,11 @@ impl FuncType {
     }
 }
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, FromStr, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From)]
 #[from(&str)]
 pub(crate) struct FunctionName(pub(crate) String);
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, FromStr, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From)]
 #[from(&str)]
 pub(crate) struct ModuleName(pub(crate) String);
 
