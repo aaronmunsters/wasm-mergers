@@ -4,6 +4,8 @@ use walrus::Module;
 
 use crate::MergeOptions;
 use crate::error::Error;
+use crate::merger::provenance_identifier::Identifier;
+use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::FuncType;
 use crate::resolver::FunctionExportSpecification;
@@ -11,7 +13,6 @@ use crate::resolver::FunctionImportSpecification;
 use crate::resolver::FunctionSpecification;
 use crate::resolver::ModuleName;
 use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
-use crate::resolver::resolution_schema::Before;
 use crate::resolver::resolution_schema::ResolutionSchemaBuilder;
 
 #[derive(Debug, Default)]
@@ -49,7 +50,7 @@ impl Resolver {
                     exporting_module: (*import.module).into(),
                     name: (*import.name).into(),
                     ty,
-                    index: Before::from(*old_function_id),
+                    index: Identifier::<Old, _>::from(*old_function_id),
                 };
                 self.resolver.add_import(function_import_specification);
                 covered_function_imports.insert((old_function_id, import.id()));
@@ -91,12 +92,13 @@ impl Resolver {
 
         for export in considering_exports.iter() {
             if let walrus::ExportItem::Function(id) = export.item {
+                let old_id: Identifier<Old, _> = id.into();
                 let ty = FuncType::from_types(considering_funcs.get(id).ty(), considering_types);
                 let export = FunctionExportSpecification {
                     module: (*considering_module).into(),
                     name: export.name.as_str().into(),
                     ty,
-                    index: Before::from(id),
+                    index: (old_id),
                 };
                 self.resolver.add_export(export);
             } else {

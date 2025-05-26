@@ -1,3 +1,5 @@
+use core::convert::From;
+
 use walrus::{
     ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
     FunctionKind, GlobalKind, IdsToIndices, ImportKind, Module, Table,
@@ -9,16 +11,18 @@ use crate::named_module::NamedParsedModule;
 use crate::resolver::identified_resolution_schema::{
     MergedExport, MergedImport, OrderedResolutionSchema,
 };
-use crate::resolver::resolution_schema::Before;
 use crate::resolver::{
     FunctionImportSpecification, FunctionName, FunctionSpecification, ModuleName, Resolved,
 };
 
-mod old_to_new_mapping;
+pub(crate) mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;
 
 mod walrus_copy;
 use walrus_copy::WasmFunctionCopy;
+
+pub(crate) mod provenance_identifier;
+use provenance_identifier::{Identifier, New, Old};
 
 pub(crate) struct Merger {
     options: MergeOptions,
@@ -42,14 +46,15 @@ impl Merger {
                 exporting_module: ModuleName(exporting_module_name),
                 name: FunctionName(function_name),
                 ty,
-                index: before_index,
+                index: old_function_index,
             } = import_specification;
             let ty = merged.types.add(ty.params(), ty.results());
             let (new_function_index, new_import_index) =
                 merged.add_import_func(exporting_module_name, function_name, ty);
-            let _ = new_import_index;
+            let _: Identifier<New, _> = new_import_index.into();
+            let new_function_index: Identifier<New, _> = new_function_index.into();
             mapping.funcs.insert(
-                (importing_module.clone(), before_index.clone()),
+                (importing_module.clone(), *old_function_index),
                 new_function_index,
             );
         }
@@ -58,25 +63,27 @@ impl Merger {
             let FunctionSpecification {
                 defining_module,
                 ty,
-                index,
+                index: old_function_index,
                 locals,
             } = local_function_specification;
-
             let locals = locals
                 .iter()
                 .map(|(old_id, ty)| {
-                    let new_id = merged.locals.add(*ty);
+                    let old_id: Identifier<Old, _> = (*old_id).into();
+                    let new_id: Identifier<New, _> = merged.locals.add(*ty).into();
                     mapping
                         .locals
-                        .insert((defining_module.clone(), Before(*old_id)), new_id);
-                    new_id
+                        .insert((defining_module.clone(), old_id), new_id);
+                    *new_id
                 })
                 .collect();
             let builder = FunctionBuilder::new(&mut merged.types, ty.params(), ty.results());
             let new_function_index = builder.finish(locals, &mut merged.funcs);
-            mapping
-                .funcs
-                .insert((defining_module.clone(), index.clone()), new_function_index);
+            let new_function_index: Identifier<New, _> = new_function_index.into();
+            mapping.funcs.insert(
+                (defining_module.clone(), *old_function_index),
+                new_function_index,
+            );
         }
 
         for resolved in resolution_schema.resolved_iter() {
@@ -84,11 +91,12 @@ impl Merger {
                 export_specification,
                 resolved_imports,
             } = resolved;
-            let local_function_index = *mapping
+            let old_exported_function_index: Identifier<Old, _> = export_specification.index;
+            let new_resolved_function_index: Identifier<New, _> = *mapping
                 .funcs
                 .get(&(
                     export_specification.module.clone(),
-                    export_specification.index.clone(),
+                    old_exported_function_index,
                 ))
                 .unwrap();
             for resolved_import in resolved_imports {
@@ -97,12 +105,12 @@ impl Merger {
                     exporting_module,
                     name: _,
                     ty: _,
-                    index: before_index,
+                    index: old_function_index,
                 } = resolved_import;
                 debug_assert_eq!(*exporting_module, export_specification.module);
                 mapping.funcs.insert(
-                    (importing_module.clone(), before_index.clone()),
-                    local_function_index,
+                    (importing_module.clone(), *old_function_index),
+                    new_resolved_function_index,
                 );
             }
         }
@@ -169,8 +177,10 @@ impl Merger {
                     const_expr.copy_for(self, considering_module_name.clone()),
                 ),
             };
+            let old_global_id: Identifier<Old, _> = global.id().into();
+            let new_global_id: Identifier<New, _> = new_global_id.into();
             self.mapping.globals.insert(
-                (considering_module_name.clone(), Before(global.id())),
+                (considering_module_name.clone(), old_global_id),
                 new_global_id,
             );
         }
@@ -199,29 +209,36 @@ impl Merger {
                     memory.page_size_log2,
                 ),
             };
+            let old_memory_id: Identifier<Old, _> = memory.id().into();
+            let new_memory_id: Identifier<New, _> = new_memory_id.into();
             self.mapping.memories.insert(
-                (considering_module_name.clone(), Before(memory.id())),
+                (considering_module_name.clone(), old_memory_id),
                 new_memory_id,
             );
         }
 
         for data in data.iter() {
+            let old_data_id: Identifier<Old, _> = data.id().into();
             let kind = match data.kind {
-                DataKind::Active { memory, offset } => DataKind::Active {
-                    memory: *self
+                DataKind::Active { memory, offset } => {
+                    let old_memory_id: Identifier<Old, _> = memory.into();
+                    let new_memory_id: Identifier<New, _> = *self
                         .mapping
                         .memories
-                        .get(&(considering_module_name.clone(), Before(memory)))
-                        .unwrap(),
-                    offset,
-                },
+                        .get(&(considering_module_name.clone(), old_memory_id))
+                        .unwrap();
+                    DataKind::Active {
+                        memory: *new_memory_id,
+                        offset,
+                    }
+                }
                 DataKind::Passive => DataKind::Passive,
             };
-            let new_data_id = self.merged.data.add(kind, data.value.clone());
-            self.mapping.datas.insert(
-                (considering_module_name.clone(), Before(data.id())),
-                new_data_id,
-            );
+            let new_data_id: Identifier<New, _> =
+                self.merged.data.add(kind, data.value.clone()).into();
+            self.mapping
+                .datas
+                .insert((considering_module_name.clone(), old_data_id), new_data_id);
         }
 
         for table in tables.iter() {
@@ -254,25 +271,30 @@ impl Merger {
                     .tables
                     .add_local(*table64, *initial, *maximum, *element_ty),
             };
+            let new_table_id: Identifier<New, _> = new_table_id.into();
+            let old_table_id: Identifier<Old, _> = table.id().into();
             self.mapping.tables.insert(
-                (considering_module_name.clone(), Before(table.id())),
+                (considering_module_name.clone(), old_table_id),
                 new_table_id,
             );
-            let new_table = self.merged.tables.get_mut(new_table_id);
+            let new_table = self.merged.tables.get_mut(*new_table_id);
             new_table.name = name.clone();
             let _ = elem_segments; // Will be copied over after all elements have been set
         }
 
         for element in elements.iter() {
+            let old_element_id: Identifier<Old, _> = element.id().into();
             let items = match &element.items {
                 ElementItems::Functions(ids) => ElementItems::Functions(
                     ids.iter()
                         .map(|old_function_id| {
-                            *self
+                            let old_function_id: Identifier<Old, _> = (*old_function_id).into();
+                            let new_function_id: Identifier<New, _> = *self
                                 .mapping
                                 .funcs
-                                .get(&(considering_module_name.clone(), Before(*old_function_id)))
-                                .unwrap()
+                                .get(&(considering_module_name.clone(), old_function_id))
+                                .unwrap();
+                            *new_function_id
                         })
                         .collect(),
                 ),
@@ -289,43 +311,50 @@ impl Merger {
                 ElementKind::Declared => ElementKind::Declared,
                 ElementKind::Active { table, offset } => {
                     // This code is copied from above ... move to function!
-                    let table = *self
+                    let old_table_id: Identifier<Old, _> = table.into();
+                    let new_table_id: Identifier<New, _> = *self
                         .mapping
                         .tables
-                        .get(&(considering_module_name.clone(), Before(table)))
+                        .get(&(considering_module_name.clone(), (old_table_id)))
                         .unwrap();
                     let offset = offset.copy_for(self, considering_module_name.clone());
-                    ElementKind::Active { table, offset }
+                    ElementKind::Active {
+                        table: *new_table_id,
+                        offset,
+                    }
                 }
             };
-            let new_element_id = self.merged.elements.add(kind, items);
+            let new_element_id: Identifier<New, _> = self.merged.elements.add(kind, items).into();
             self.mapping.elements.insert(
-                (considering_module_name.clone(), Before(element.id())),
+                (considering_module_name.clone(), old_element_id),
                 new_element_id,
             );
         }
 
         for table in tables.iter() {
             let Table { elem_segments, .. } = table;
-            let new_table_id = *self
+            let before_table_id: Identifier<Old, _> = table.id().into();
+            let new_table_id: Identifier<New, _> = *self
                 .mapping
                 .tables
-                .get(&(considering_module_name.clone(), Before(table.id())))
+                .get(&(considering_module_name.clone(), before_table_id))
                 .unwrap();
-            let table = self.merged.tables.get_mut(new_table_id);
+            let table = self.merged.tables.get_mut(*new_table_id);
             for old_element_id in elem_segments.iter() {
+                let old_element_id: Identifier<Old, _> = (*old_element_id).into();
                 let new_element_id = *self
                     .mapping
                     .elements
-                    .get(&(considering_module_name.clone(), Before(*old_element_id)))
+                    .get(&(considering_module_name.clone(), old_element_id))
                     .unwrap();
-                table.elem_segments.insert(new_element_id);
+                table.elem_segments.insert(*new_element_id);
             }
         }
 
         for import in imports.iter() {
             match &import.kind {
                 ImportKind::Function(before_id) => {
+                    let before_id: Identifier<Old, _> = (*before_id).into();
                     // import_covered.insert(before_id);
                     let exporting_module = import.module.as_str().into();
                     let importing_module = considering_module_name.clone();
@@ -348,12 +377,12 @@ impl Merger {
                             } = import_spec;
 
                             // If it is unresolved, assert it was added in the merged output
-                            let import_id = *self
+                            let import_id: Identifier<New, _> = *self
                                 .mapping
                                 .funcs
-                                .get(&(importing_module, Before(*before_id)))
+                                .get(&(importing_module, before_id))
                                 .unwrap();
-                            let new_import = self.merged.imports.get_imported_func(import_id);
+                            let new_import = self.merged.imports.get_imported_func(*import_id);
                             debug_assert!(
                                 new_import.is_some_and(|import| import.name == function_name
                                     || (import.name.contains(&importing_module_name)
@@ -405,11 +434,11 @@ impl Merger {
                     // debug_assert!(import_covered.contains(&function.id()))
                 }
                 FunctionKind::Local(local_function) => {
-                    let old_function_index = function.id();
-                    let new_function_index = *self
+                    let old_function_index: Identifier<Old, _> = function.id().into();
+                    let new_function_index: Identifier<New, _> = *self
                         .mapping
                         .funcs
-                        .get(&(considering_module_name.clone(), Before(old_function_index)))
+                        .get(&(considering_module_name.clone(), old_function_index))
                         .unwrap();
 
                     let mut visitor: WasmFunctionCopy<'_, '_> = WasmFunctionCopy::new(
@@ -442,6 +471,7 @@ impl Merger {
                 //        If the function cannot be resolved, & it name-clashes
                 //        with another function ... then?
                 ExportItem::Function(before_id) => {
+                    let before_id: Identifier<Old, _> = (*before_id).into();
                     let exporting_module = considering_module_name.clone();
                     let function_name = export.name.as_str().into();
                     match self
@@ -450,20 +480,19 @@ impl Merger {
                     {
                         MergedExport::Resolved => {
                             // FIXME: allow hiding resolved functions
-                            let new_function_id = *self
+                            let new_function_id: Identifier<New, _> = *self
                                 .mapping
                                 .funcs
-                                .get(&(considering_module_name.clone(), Before(*before_id)))
+                                .get(&(considering_module_name.clone(), before_id))
                                 .unwrap();
                             let export_id = self
                                 .merged
                                 .exports
-                                .add(&export.name, ExportItem::Function(new_function_id));
+                                .add(&export.name, ExportItem::Function(*new_function_id));
                             let _ = export_id; // The export ID is not of interest for this module
                         }
                         MergedExport::Unresolved(export_spec) => {
-                            let Before(unresolved_before_index) = export_spec.index;
-                            debug_assert_eq!(unresolved_before_index, *before_id);
+                            debug_assert_eq!(export_spec.index, before_id);
                             debug_assert_eq!(export_spec.name, function_name);
 
                             let duplicate_function_export =
@@ -478,13 +507,10 @@ impl Merger {
                                             "{considering_module_name_str}:{}",
                                             export.name
                                         );
-                                        let new_function_id = self
+                                        let new_function_id: Identifier<New, _> = *self
                                             .mapping
                                             .funcs
-                                            .get(&(
-                                                considering_module_name.clone(),
-                                                Before(*before_id),
-                                            ))
+                                            .get(&(considering_module_name.clone(), before_id))
                                             .unwrap();
                                         self.merged
                                             .exports
@@ -498,10 +524,10 @@ impl Merger {
                                     }
                                 }
                                 None => {
-                                    let new_function_id = self
+                                    let new_function_id: Identifier<New, _> = *self
                                         .mapping
                                         .funcs
-                                        .get(&(considering_module_name.clone(), Before(*before_id)))
+                                        .get(&(considering_module_name.clone(), before_id))
                                         .unwrap();
                                     self.merged
                                         .exports
@@ -517,15 +543,16 @@ impl Merger {
                             existing_export.name == export.name
                                 && matches!(existing_export.item, ExportItem::Table(_))
                         });
+                    let old_table_id: Identifier<Old, _> = (*before_index).into();
                     match duplicate_table_export {
                         Some(duplicate_table_export) => {
                             if self.options.rename_duplicate_exports {
                                 let renamed =
                                     format!("{considering_module_name_str}:{}", export.name);
-                                let new_table_id = self
+                                let new_table_id: Identifier<New, _> = *self
                                     .mapping
                                     .tables
-                                    .get(&(considering_module_name.clone(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), old_table_id))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -537,10 +564,10 @@ impl Merger {
                             }
                         }
                         None => {
-                            let new_table_id = self
+                            let new_table_id: Identifier<New, _> = *self
                                 .mapping
                                 .tables
-                                .get(&(considering_module_name.clone(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), old_table_id))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -554,15 +581,16 @@ impl Merger {
                             existing_export.name == export.name
                                 && matches!(existing_export.item, ExportItem::Memory(_))
                         });
+                    let old_memory_id: Identifier<Old, _> = (*before_index).into();
                     match duplicate_memory_export {
                         Some(duplicate_memory_export) => {
                             if self.options.rename_duplicate_exports {
                                 let renamed =
                                     format!("{considering_module_name_str}:{}", export.name);
-                                let new_memory_id = self
+                                let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories
-                                    .get(&(considering_module_name.clone(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), old_memory_id))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -574,10 +602,10 @@ impl Merger {
                             }
                         }
                         None => {
-                            let new_memory_id = self
+                            let new_memory_id: Identifier<New, _> = *self
                                 .mapping
                                 .memories
-                                .get(&(considering_module_name.clone(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), old_memory_id))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -592,15 +620,16 @@ impl Merger {
                             existing_export.name == export.name
                                 && matches!(existing_export.item, ExportItem::Global(_))
                         });
+                    let old_global_id: Identifier<Old, _> = (*before_index).into();
                     match duplicate_global_export {
                         Some(duplicate_global_export) => {
                             if self.options.rename_duplicate_exports {
                                 let renamed =
                                     format!("{considering_module_name_str}:{}", export.name);
-                                let new_global_id = self
+                                let new_global_id: Identifier<New, _> = *self
                                     .mapping
                                     .globals
-                                    .get(&(considering_module_name.clone(), Before(*before_index)))
+                                    .get(&(considering_module_name.clone(), old_global_id))
                                     .unwrap();
                                 self.merged
                                     .exports
@@ -612,10 +641,10 @@ impl Merger {
                             }
                         }
                         None => {
-                            let new_global_id = self
+                            let new_global_id: Identifier<New, _> = *self
                                 .mapping
                                 .globals
-                                .get(&(considering_module_name.clone(), Before(*before_index)))
+                                .get(&(considering_module_name.clone(), old_global_id))
                                 .unwrap();
                             self.merged
                                 .exports
@@ -627,10 +656,11 @@ impl Merger {
         }
 
         if let Some(old_start_id) = start {
-            let new_start_id = self
+            let old_start_id: Identifier<Old, _> = (*old_start_id).into();
+            let new_start_id: Identifier<New, _> = *self
                 .mapping
                 .funcs
-                .get(&(considering_module_name, Before(*old_start_id)))
+                .get(&(considering_module_name, old_start_id))
                 .unwrap();
             self.starts.push(*new_start_id);
         }
@@ -690,20 +720,24 @@ impl CopyForMerger for ConstExpr {
         match self {
             ConstExpr::Value(value) => ConstExpr::Value(*value),
             ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),
-            ConstExpr::Global(id) => ConstExpr::Global(
-                *merger
+            ConstExpr::Global(id) => {
+                let old_id: Identifier<Old, _> = (*id).into();
+                let new_id: Identifier<New, _> = *merger
                     .mapping
                     .globals
-                    .get(&(considering_module_name, Before(*id)))
-                    .unwrap(),
-            ),
-            ConstExpr::RefFunc(id) => ConstExpr::RefFunc(
-                *merger
+                    .get(&(considering_module_name, old_id))
+                    .unwrap();
+                ConstExpr::Global(*new_id)
+            }
+            ConstExpr::RefFunc(id) => {
+                let old_id: Identifier<Old, _> = (*id).into();
+                let new_id: Identifier<New, _> = *merger
                     .mapping
                     .funcs
-                    .get(&(considering_module_name, Before(*id)))
-                    .unwrap(),
-            ),
+                    .get(&(considering_module_name, old_id))
+                    .unwrap();
+                ConstExpr::RefFunc(*new_id)
+            }
         }
     }
 }

@@ -1,6 +1,6 @@
-use derive_more::From;
 use std::collections::{HashMap, HashSet};
-use walrus::FunctionId;
+
+use crate::merger::old_to_new_mapping::OldIdFunction;
 
 use crate::{MergeOptions, resolver::ModuleName};
 
@@ -9,23 +9,20 @@ use super::{
     ResolutionSchema, Resolved,
 };
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Default, From)]
-pub(crate) struct Before<T>(pub(crate) T);
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct NameResolved {
     /// The exported function
-    export_specification: FunctionExportSpecification<Before<FunctionId>>,
+    export_specification: FunctionExportSpecification<OldIdFunction>,
     /// The imported functions with which the exported is resolved by namespace
-    resolved_imports: HashSet<FunctionImportSpecification<Before<FunctionId>>>,
+    resolved_imports: HashSet<FunctionImportSpecification<OldIdFunction>>,
 }
 
 enum FunctionResolveResult {
-    NoImportPresent(FunctionExportSpecification<Before<FunctionId>>),
-    AllImportsResolve(Resolved<Before<FunctionId>>),
+    NoImportPresent(FunctionExportSpecification<OldIdFunction>),
+    AllImportsResolve(Resolved<OldIdFunction>),
     AllImportsMismatch(TypeMismatch),
     PartialResolvePartialMismatch {
-        resolve: Resolved<Before<FunctionId>>,
+        resolve: Resolved<OldIdFunction>,
         mismatch: TypeMismatch,
     },
 }
@@ -86,9 +83,9 @@ impl NameResolved {
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 struct TypeMismatch {
     /// The exported function
-    export_specification: FunctionExportSpecification<Before<FunctionId>>,
+    export_specification: FunctionExportSpecification<OldIdFunction>,
     /// The imported functions with which the exported is resolved but mismatches in type
-    resolved_imports: Vec<FunctionImportSpecification<Before<FunctionId>>>,
+    resolved_imports: Vec<FunctionImportSpecification<OldIdFunction>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,40 +113,34 @@ pub struct ValidationFailure {
     ///
     /// If no other module imports "f", then M
     /// Would result in a `HashMap { "f" -> { A:f, B:f } }`.
-    name_clashes: HashMap<FunctionName, HashSet<FunctionExportSpecification<Before<FunctionId>>>>,
+    name_clashes: HashMap<FunctionName, HashSet<FunctionExportSpecification<OldIdFunction>>>,
 
     /// Part of the resolution that was a success.
-    resolved_schema: ResolutionSchema<Before<FunctionId>>,
+    resolved_schema: ResolutionSchema<OldIdFunction>,
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]
 pub struct ResolutionSchemaBuilder {
-    expected_imports: HashSet<FunctionImportSpecification<Before<FunctionId>>>,
-    local_function_specifications: HashSet<FunctionSpecification<Before<FunctionId>>>,
-    provided_exports: HashSet<FunctionExportSpecification<Before<FunctionId>>>,
+    expected_imports: HashSet<FunctionImportSpecification<OldIdFunction>>,
+    local_function_specifications: HashSet<FunctionSpecification<OldIdFunction>>,
+    provided_exports: HashSet<FunctionExportSpecification<OldIdFunction>>,
 }
 
 impl ResolutionSchemaBuilder {
-    pub(crate) fn add_import(
-        &mut self,
-        specification: FunctionImportSpecification<Before<FunctionId>>,
-    ) {
+    pub(crate) fn add_import(&mut self, specification: FunctionImportSpecification<OldIdFunction>) {
         let newly_inserted = self.expected_imports.insert(specification);
         assert!(newly_inserted);
     }
 
     pub(crate) fn add_local_function(
         &mut self,
-        specification: FunctionSpecification<Before<FunctionId>>,
+        specification: FunctionSpecification<OldIdFunction>,
     ) {
         let newly_inserted = self.local_function_specifications.insert(specification);
         assert!(newly_inserted);
     }
 
-    pub(crate) fn add_export(
-        &mut self,
-        specification: FunctionExportSpecification<Before<FunctionId>>,
-    ) {
+    pub(crate) fn add_export(&mut self, specification: FunctionExportSpecification<OldIdFunction>) {
         let newly_inserted = self.provided_exports.insert(specification);
         assert!(newly_inserted);
     }
@@ -157,7 +148,7 @@ impl ResolutionSchemaBuilder {
     pub(crate) fn validate(
         self,
         merge_options: MergeOptions,
-    ) -> Result<ResolutionSchema<Before<FunctionId>>, Box<ValidationFailure>> {
+    ) -> Result<ResolutionSchema<OldIdFunction>, Box<ValidationFailure>> {
         let Self {
             expected_imports,
             local_function_specifications,
