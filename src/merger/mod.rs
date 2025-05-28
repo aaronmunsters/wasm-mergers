@@ -5,7 +5,7 @@ use walrus::{
     FunctionKind, GlobalKind, IdsToIndices, ImportKind, Module, Table,
 };
 
-use crate::error::Error;
+use crate::error::{Error, ExportKind};
 use crate::merge_options::MergeOptions;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::identified_resolution_schema::{
@@ -516,10 +516,15 @@ impl Merger {
                                             .exports
                                             .add(&renamed, ExportItem::Function(*new_function_id));
                                     } else {
-                                        // TODO: nicer reporting with the duplicate_function_export
+                                        // TODO: this could be reported early when resolving
+                                        debug_assert_eq!(
+                                            duplicate_function_export.name,
+                                            export.name
+                                        );
                                         let _ = duplicate_function_export;
                                         return Err(Error::DuplicateNameExport(
                                             export.name.clone(),
+                                            ExportKind::Function,
                                         ));
                                     }
                                 }
@@ -558,9 +563,12 @@ impl Merger {
                                     .exports
                                     .add(&renamed, ExportItem::Table(*new_table_id));
                             } else {
-                                // TODO: nicer reporting with the duplicate_table_export
-                                let _ = duplicate_table_export;
-                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                                // TODO: this could be reported early when resolving
+                                debug_assert_eq!(duplicate_table_export.name, export.name);
+                                return Err(Error::DuplicateNameExport(
+                                    export.name.clone(),
+                                    ExportKind::Table,
+                                ));
                             }
                         }
                         None => {
@@ -596,9 +604,12 @@ impl Merger {
                                     .exports
                                     .add(&renamed, ExportItem::Memory(*new_memory_id));
                             } else {
-                                // TODO: nicer reporting with the duplicate_memory_export
-                                let _ = duplicate_memory_export;
-                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                                // TODO: this could be reported early when resolving
+                                debug_assert_eq!(duplicate_memory_export.name, export.name);
+                                return Err(Error::DuplicateNameExport(
+                                    export.name.clone(),
+                                    ExportKind::Memory,
+                                ));
                             }
                         }
                         None => {
@@ -635,9 +646,12 @@ impl Merger {
                                     .exports
                                     .add(&renamed, ExportItem::Global(*new_global_id));
                             } else {
-                                // TODO: nicer reporting with the duplicate_global_export
-                                let _ = duplicate_global_export;
-                                return Err(Error::DuplicateNameExport(export.name.clone()));
+                                // TODO: this could be reported early when resolving
+                                debug_assert_eq!(duplicate_global_export.name, export.name);
+                                return Err(Error::DuplicateNameExport(
+                                    export.name.clone(),
+                                    ExportKind::Global,
+                                ));
                             }
                         }
                         None => {

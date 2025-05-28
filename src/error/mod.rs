@@ -8,6 +8,14 @@ pub enum Error {
     ComponentModelUnsupported(String),
     #[error("Validation error {0:?}")]
     Validation(Box<ValidationFailure>),
-    #[error("Duplicate name export for same type: {0}")]
-    DuplicateNameExport(String),
+    #[error("Duplicate name \"{0}\" export for same type: {1:?}")]
+    DuplicateNameExport(String, ExportKind),
+}
+
+#[derive(Debug)]
+pub enum ExportKind {
+    Function,
+    Table,
+    Memory,
+    Global,
 }
