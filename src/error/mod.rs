@@ -12,10 +12,15 @@ pub enum Error {
     DuplicateNameExport(String, ExportKind),
 }
 
-#[derive(Debug)]
+/// An exported item.
+#[derive(Copy, Clone, Debug)]
 pub enum ExportKind {
+    /// An exported function.
     Function,
+    /// An exported table.
     Table,
+    /// An exported memory.
     Memory,
+    /// An exported global.
     Global,
 }
