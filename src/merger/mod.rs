@@ -704,7 +704,7 @@ impl Merger {
     pub(crate) fn build(mut self) -> Module {
         self.merged
             .producers
-            .add_processed_by("wasm-mergers", env!("CARGO_PKG_VERSION"));
+            .add_processed_by("webassembly-mergers", env!("CARGO_PKG_VERSION"));
         let formatted: Vec<_> = self
             .names
             .iter()
