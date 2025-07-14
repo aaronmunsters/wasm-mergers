@@ -18,7 +18,7 @@ pub struct MergeConfiguration<'a, Module> {
     pub options: MergeOptions,
 }
 
-impl<'a, T> MergeConfiguration<'a, T> {
+impl<T> MergeConfiguration<'_, T> {
     #[must_use]
     pub(crate) fn owned_names(&self) -> Vec<ModuleName> {
         self.modules.iter().map(|m| m.name.into()).collect()

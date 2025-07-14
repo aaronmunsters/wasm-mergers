@@ -42,7 +42,7 @@ impl NameResolved {
         let mut imports_type_matching = vec![];
         let mut imports_type_mismatch = vec![];
 
-        for import in resolved_imports.into_iter() {
+        for import in resolved_imports {
             if import.ty.eq(&export_specification.ty) {
                 // Types match
                 imports_type_matching.push(import);
@@ -147,7 +147,7 @@ impl ResolutionSchemaBuilder {
 
     pub(crate) fn validate(
         self,
-        merge_options: MergeOptions,
+        merge_options: &MergeOptions,
     ) -> Result<ResolutionSchema<OldIdFunction>, Box<ValidationFailure>> {
         let Self {
             expected_imports,
@@ -167,7 +167,7 @@ impl ResolutionSchemaBuilder {
         let mut unresolved_imports = HashSet::new();
 
         // For each imported function, attempt to resolve it with an export based on naming
-        for import in expected_imports.into_iter() {
+        for import in expected_imports {
             if let Some(export) = potentially_resolved_exports.iter_mut().find(|export| {
                 let ModuleName(export_module_name) = &export.export_specification.module;
                 let ModuleName(import_module_name) = &import.exporting_module;
@@ -198,10 +198,10 @@ impl ResolutionSchemaBuilder {
         for export in potentially_resolved_exports {
             match export.attempt_resolve() {
                 FunctionResolveResult::NoImportPresent(export_specification) => {
-                    unresolved_exports.push(export_specification)
+                    unresolved_exports.push(export_specification);
                 }
                 FunctionResolveResult::AllImportsResolve(resolve) => {
-                    assert!(resolved.insert(resolve))
+                    assert!(resolved.insert(resolve));
                 }
                 FunctionResolveResult::AllImportsMismatch(mismatch) => {
                     assert!(types_mismatch.insert(mismatch));
@@ -238,10 +238,10 @@ impl ResolutionSchemaBuilder {
         let unresolved_exports = unresolved_exports.iter().cloned().collect();
 
         let resolved_schema = ResolutionSchema {
-            local_function_specifications,
-            resolved,
-            unresolved_exports,
             unresolved_imports,
+            resolved,
+            local_function_specifications,
+            unresolved_exports,
         };
 
         if !types_mismatch.is_empty() {

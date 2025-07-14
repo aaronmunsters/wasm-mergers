@@ -56,7 +56,7 @@ impl Resolver {
                 covered_function_imports.insert((old_function_id, import.id()));
             } else {
                 // FIXME: Skipping resolving `tables`, `globals` & `memories`.
-                println!("Skipping `tables`, `globals`, `memories`")
+                println!("Skipping `tables`, `globals`, `memories`");
             }
         }
 
@@ -80,11 +80,11 @@ impl Resolver {
                     });
                 }
                 walrus::FunctionKind::Import(i) => {
-                    debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)))
+                    debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)));
                 }
                 walrus::FunctionKind::Uninitialized(_) => {
                     return Err(Error::ComponentModelUnsupported(
-                        considering_module.to_string(),
+                        (*considering_module).to_string(),
                     ));
                 }
             }
@@ -103,7 +103,7 @@ impl Resolver {
                 self.resolver.add_export(export);
             } else {
                 // FIXME: Skipping resolving `tables`, `globals` & `memories`.
-                println!("Skipping merging for `tables`, `globals`, `memories`")
+                println!("Skipping merging for `tables`, `globals`, `memories`");
             }
         }
 
@@ -113,7 +113,7 @@ impl Resolver {
     pub(crate) fn resolve(
         self,
         modules: &[ModuleName],
-        merge_options: MergeOptions,
+        merge_options: &MergeOptions,
     ) -> Result<OrderedResolutionSchema, Error> {
         let resolved = self
             .resolver

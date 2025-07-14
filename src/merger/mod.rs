@@ -278,7 +278,7 @@ impl Merger {
                 new_table_id,
             );
             let new_table = self.merged.tables.get_mut(*new_table_id);
-            new_table.name = name.clone();
+            new_table.name.clone_from(name);
             let _ = elem_segments; // Will be copied over after all elements have been set
         }
 
@@ -340,7 +340,7 @@ impl Merger {
                 .get(&(considering_module_name.clone(), before_table_id))
                 .unwrap();
             let table = self.merged.tables.get_mut(*new_table_id);
-            for old_element_id in elem_segments.iter() {
+            for old_element_id in elem_segments {
                 let old_element_id: Identifier<Old, _> = (*old_element_id).into();
                 let new_element_id = *self
                     .mapping
@@ -500,35 +500,10 @@ impl Merger {
                                     existing_export.name == export.name
                                         && matches!(existing_export.item, ExportItem::Function(_))
                                 });
-                            match duplicate_function_export {
-                                Some(duplicate_function_export) => {
-                                    if self.options.rename_duplicate_exports {
-                                        let renamed = format!(
-                                            "{considering_module_name_str}:{}",
-                                            export.name
-                                        );
-                                        let new_function_id: Identifier<New, _> = *self
-                                            .mapping
-                                            .funcs
-                                            .get(&(considering_module_name.clone(), before_id))
-                                            .unwrap();
-                                        self.merged
-                                            .exports
-                                            .add(&renamed, ExportItem::Function(*new_function_id));
-                                    } else {
-                                        // TODO: this could be reported early when resolving
-                                        debug_assert_eq!(
-                                            duplicate_function_export.name,
-                                            export.name
-                                        );
-                                        let _ = duplicate_function_export;
-                                        return Err(Error::DuplicateNameExport(
-                                            export.name.clone(),
-                                            ExportKind::Function,
-                                        ));
-                                    }
-                                }
-                                None => {
+                            if let Some(duplicate_function_export) = duplicate_function_export {
+                                if self.options.rename_duplicate_exports {
+                                    let renamed =
+                                        format!("{considering_module_name_str}:{}", export.name);
                                     let new_function_id: Identifier<New, _> = *self
                                         .mapping
                                         .funcs
@@ -536,9 +511,26 @@ impl Merger {
                                         .unwrap();
                                     self.merged
                                         .exports
-                                        .add(&export.name, ExportItem::Function(*new_function_id));
+                                        .add(&renamed, ExportItem::Function(*new_function_id));
+                                } else {
+                                    // TODO: this could be reported early when resolving
+                                    debug_assert_eq!(duplicate_function_export.name, export.name);
+                                    let _ = duplicate_function_export;
+                                    return Err(Error::DuplicateNameExport(
+                                        export.name.clone(),
+                                        ExportKind::Function,
+                                    ));
                                 }
-                            };
+                            } else {
+                                let new_function_id: Identifier<New, _> = *self
+                                    .mapping
+                                    .funcs
+                                    .get(&(considering_module_name.clone(), before_id))
+                                    .unwrap();
+                                self.merged
+                                    .exports
+                                    .add(&export.name, ExportItem::Function(*new_function_id));
+                            }
                         }
                     }
                 }
@@ -549,29 +541,9 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Table(_))
                         });
                     let old_table_id: Identifier<Old, _> = (*before_index).into();
-                    match duplicate_table_export {
-                        Some(duplicate_table_export) => {
-                            if self.options.rename_duplicate_exports {
-                                let renamed =
-                                    format!("{considering_module_name_str}:{}", export.name);
-                                let new_table_id: Identifier<New, _> = *self
-                                    .mapping
-                                    .tables
-                                    .get(&(considering_module_name.clone(), old_table_id))
-                                    .unwrap();
-                                self.merged
-                                    .exports
-                                    .add(&renamed, ExportItem::Table(*new_table_id));
-                            } else {
-                                // TODO: this could be reported early when resolving
-                                debug_assert_eq!(duplicate_table_export.name, export.name);
-                                return Err(Error::DuplicateNameExport(
-                                    export.name.clone(),
-                                    ExportKind::Table,
-                                ));
-                            }
-                        }
-                        None => {
+                    if let Some(duplicate_table_export) = duplicate_table_export {
+                        if self.options.rename_duplicate_exports {
+                            let renamed = format!("{considering_module_name_str}:{}", export.name);
                             let new_table_id: Identifier<New, _> = *self
                                 .mapping
                                 .tables
@@ -579,9 +551,25 @@ impl Merger {
                                 .unwrap();
                             self.merged
                                 .exports
-                                .add(&export.name, ExportItem::Table(*new_table_id));
+                                .add(&renamed, ExportItem::Table(*new_table_id));
+                        } else {
+                            // TODO: this could be reported early when resolving
+                            debug_assert_eq!(duplicate_table_export.name, export.name);
+                            return Err(Error::DuplicateNameExport(
+                                export.name.clone(),
+                                ExportKind::Table,
+                            ));
                         }
-                    };
+                    } else {
+                        let new_table_id: Identifier<New, _> = *self
+                            .mapping
+                            .tables
+                            .get(&(considering_module_name.clone(), old_table_id))
+                            .unwrap();
+                        self.merged
+                            .exports
+                            .add(&export.name, ExportItem::Table(*new_table_id));
+                    }
                 }
                 ExportItem::Memory(before_index) => {
                     let duplicate_memory_export =
@@ -590,29 +578,9 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Memory(_))
                         });
                     let old_memory_id: Identifier<Old, _> = (*before_index).into();
-                    match duplicate_memory_export {
-                        Some(duplicate_memory_export) => {
-                            if self.options.rename_duplicate_exports {
-                                let renamed =
-                                    format!("{considering_module_name_str}:{}", export.name);
-                                let new_memory_id: Identifier<New, _> = *self
-                                    .mapping
-                                    .memories
-                                    .get(&(considering_module_name.clone(), old_memory_id))
-                                    .unwrap();
-                                self.merged
-                                    .exports
-                                    .add(&renamed, ExportItem::Memory(*new_memory_id));
-                            } else {
-                                // TODO: this could be reported early when resolving
-                                debug_assert_eq!(duplicate_memory_export.name, export.name);
-                                return Err(Error::DuplicateNameExport(
-                                    export.name.clone(),
-                                    ExportKind::Memory,
-                                ));
-                            }
-                        }
-                        None => {
+                    if let Some(duplicate_memory_export) = duplicate_memory_export {
+                        if self.options.rename_duplicate_exports {
+                            let renamed = format!("{considering_module_name_str}:{}", export.name);
                             let new_memory_id: Identifier<New, _> = *self
                                 .mapping
                                 .memories
@@ -620,8 +588,24 @@ impl Merger {
                                 .unwrap();
                             self.merged
                                 .exports
-                                .add(&export.name, ExportItem::Memory(*new_memory_id));
+                                .add(&renamed, ExportItem::Memory(*new_memory_id));
+                        } else {
+                            // TODO: this could be reported early when resolving
+                            debug_assert_eq!(duplicate_memory_export.name, export.name);
+                            return Err(Error::DuplicateNameExport(
+                                export.name.clone(),
+                                ExportKind::Memory,
+                            ));
                         }
+                    } else {
+                        let new_memory_id: Identifier<New, _> = *self
+                            .mapping
+                            .memories
+                            .get(&(considering_module_name.clone(), old_memory_id))
+                            .unwrap();
+                        self.merged
+                            .exports
+                            .add(&export.name, ExportItem::Memory(*new_memory_id));
                     }
                 }
                 // TODO: code dupe with other export forms
@@ -632,29 +616,9 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Global(_))
                         });
                     let old_global_id: Identifier<Old, _> = (*before_index).into();
-                    match duplicate_global_export {
-                        Some(duplicate_global_export) => {
-                            if self.options.rename_duplicate_exports {
-                                let renamed =
-                                    format!("{considering_module_name_str}:{}", export.name);
-                                let new_global_id: Identifier<New, _> = *self
-                                    .mapping
-                                    .globals
-                                    .get(&(considering_module_name.clone(), old_global_id))
-                                    .unwrap();
-                                self.merged
-                                    .exports
-                                    .add(&renamed, ExportItem::Global(*new_global_id));
-                            } else {
-                                // TODO: this could be reported early when resolving
-                                debug_assert_eq!(duplicate_global_export.name, export.name);
-                                return Err(Error::DuplicateNameExport(
-                                    export.name.clone(),
-                                    ExportKind::Global,
-                                ));
-                            }
-                        }
-                        None => {
+                    if let Some(duplicate_global_export) = duplicate_global_export {
+                        if self.options.rename_duplicate_exports {
+                            let renamed = format!("{considering_module_name_str}:{}", export.name);
                             let new_global_id: Identifier<New, _> = *self
                                 .mapping
                                 .globals
@@ -662,8 +626,24 @@ impl Merger {
                                 .unwrap();
                             self.merged
                                 .exports
-                                .add(&export.name, ExportItem::Global(*new_global_id));
+                                .add(&renamed, ExportItem::Global(*new_global_id));
+                        } else {
+                            // TODO: this could be reported early when resolving
+                            debug_assert_eq!(duplicate_global_export.name, export.name);
+                            return Err(Error::DuplicateNameExport(
+                                export.name.clone(),
+                                ExportKind::Global,
+                            ));
                         }
+                    } else {
+                        let new_global_id: Identifier<New, _> = *self
+                            .mapping
+                            .globals
+                            .get(&(considering_module_name.clone(), old_global_id))
+                            .unwrap();
+                        self.merged
+                            .exports
+                            .add(&export.name, ExportItem::Global(*new_global_id));
                     }
                 }
             }

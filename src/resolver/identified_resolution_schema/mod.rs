@@ -162,15 +162,15 @@ impl ResolutionSchema<OldIdFunction> {
             }
 
             for module_internal in self.remove_internal(module) {
-                internal.push(module_internal)
+                internal.push(module_internal);
             }
 
             for module_resolved in self.remove_sorted_resolved(module) {
-                resolved.push(module_resolved)
+                resolved.push(module_resolved);
             }
 
             for module_resolved in self.remove_sorted_unresolved_exports(module) {
-                unresolved_exports.push(module_resolved)
+                unresolved_exports.push(module_resolved);
             }
             modules = rest_modules;
         }

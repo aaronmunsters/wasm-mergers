@@ -83,6 +83,12 @@ fn merge_even_odd() {
         (export "odd" (func $odd)))
       "#;
 
+    // Wasm i32 bool representation -> Rust bool
+    fn to_bool(v: i32) -> bool {
+        assert!(v == 0 || v == 1);
+        v == 1
+    }
+
     let manual_merged = { parse_str(WAT_EVEN_ODD).unwrap() };
     let lib_merged = {
         let wat_even = parse_str(WAT_EVEN).unwrap();
@@ -100,10 +106,10 @@ fn merge_even_odd() {
 
     // Structural assertion
     {
+        const RATIO_ALLOWED_DELTA: f64 = 0.30; // Expressed in %
         let manual_merged_len = manual_merged.len() as f64;
         let lib_merged_len = lib_merged.len() as f64;
         let ratio = manual_merged_len / lib_merged_len;
-        const RATIO_ALLOWED_DELTA: f64 = 0.30; // 20% difference
         assert!(
             (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
             "Lengths differ by more than {RATIO_ALLOWED_DELTA}%: manual = {manual_merged_len}, lib = {lib_merged_len}",
@@ -124,11 +130,6 @@ fn merge_even_odd() {
            even [i32] [i32],
            odd [i32] [i32],
         };
-
-        fn to_bool(v: i32) -> bool {
-            assert!(v == 0 || v == 1);
-            v == 1
-        }
 
         for i in 0..1000 {
             assert_eq!(to_bool(wasm_call!(store, even, i)), r_even(i));
@@ -290,10 +291,10 @@ fn merge_cycle_chain() {
     {
         // Structural assertion
         {
+            const RATIO_ALLOWED_DELTA: f64 = 0.1; // Expressed in %
             let manual_merged_len = manual_merged.len() as f64;
             let lib_merged_len = merged_wasm.len() as f64;
             let ratio = manual_merged_len / lib_merged_len;
-            const RATIO_ALLOWED_DELTA: f64 = 0.1; // 10% difference
             assert!(
                 (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
                 "Lengths differ by more than {RATIO_ALLOWED_DELTA}%: manual = {manual_merged_len}, lib = {lib_merged_len}",
@@ -388,7 +389,7 @@ fn merge_pass_through_module() {
 /// - Module A defines the recursive function `a(n)`
 /// - Module B re-exports `a` as `b`, completing a cycle so that `a` calls into `b`, which points back to `a`
 ///
-/// This verifies that webassembly_mergers can correctly resolve circular imports.
+/// This verifies that `webassembly_mergers` can correctly resolve circular imports.
 #[test]
 fn merge_cross_module_fibonacci() {
     const WAT_MODULE_A: &str = r#"
@@ -436,6 +437,15 @@ fn merge_cross_module_fibonacci() {
         (export "indirect_fib" (func $fib)))
       "#;
 
+    // Reference implementation
+    fn expected_fib(n: i32) -> i32 {
+        match n {
+            0 => 0,
+            1 => 1,
+            _ => expected_fib(n - 1) + expected_fib(n - 2),
+        }
+    }
+
     // Parse WAT source to binary
     let binary_a = parse_str(WAT_MODULE_A).expect("Failed to parse module A");
     let binary_b = parse_str(WAT_MODULE_B).expect("Failed to parse module B");
@@ -459,15 +469,6 @@ fn merge_cross_module_fibonacci() {
     // Get exported Fibonacci function
     declare_fns_from_wasm! { instance, store, fib [i32] [i32] };
 
-    // Reference implementation
-    fn expected_fib(n: i32) -> i32 {
-        match n {
-            0 => 0,
-            1 => 1,
-            _ => expected_fib(n - 1) + expected_fib(n - 2),
-        }
-    }
-
     // Run and assert behavior
     for i in 0..20 {
         let actual = wasm_call!(store, fib, i);
@@ -479,23 +480,32 @@ fn merge_cross_module_fibonacci() {
     }
 }
 
-/// Module structure:
-/// - `ab` defines:
-///     - a() = 2
-///     - b() = 3
+/// Module structures:
+/// ## Module `ab`
+/// defined as:
+/// ```
+/// a() = 2
+/// b() = 3
+/// ```
 ///
-/// - `cd` imports a() and b() from `ab`, and defines:
-///     - c() = a() * 5  → 2 * 5 = 10  [unused]
-///     - d() = b() * 7  → 3 * 7 = 21
+/// ## Module `cd`
+/// imports `a()` and `b()` from `ab`, and is defined as:
+/// ```
+/// c() = a() * 5 // = 2 * 5 = 10
+/// d() = b() * 7 // = 3 * 7 = 21
+/// ```
 ///
-/// - `e` imports a() and b() from `ab`, and c(), d() from `cd`, and defines:
-///     - e() = (a()*11 * b()*13) * (c()*17 * d()*23)
-///       = ((2*11)*(3*13)) * ((10*17)*(21*23))
+/// ## Module `e`
+/// imports `a()` and `b()` from `ab`,
+/// and `c()`, `d()` from `cd`, is defined as:
+/// ```
+/// e() = (a()*11 * b()*13) * (c()*17 * d()*23)
+/// //  = ((2*11)*(3*13)) * ((10*17)*(21*23))
+/// ```
 ///
 /// After merging:
 /// - All functions should be resolved internally (no remaining imports)
-/// - `c` is unused (only referenced by `e` but result is never used), so it should be eliminated
-/// - Final merged module should export: d(), e(), f()
+/// - Final merged module should export: `d()`, `e()`, `f()`
 #[test]
 fn composition_of_cross_deps() {
     const WAT_AB: &str = r#"
@@ -567,6 +577,10 @@ fn composition_of_cross_deps() {
 
     assert_eq!(wasm_call!(store, e), rs_e());
 }
+
+// TODO: Define example from above but with a dead function
+// E.g. `c` that is unused (only referenced by `e` but not used),
+// So require it to be eliminated? (but ... this could be a second pass?)
 
 #[test]
 fn test_multi_memory() {
@@ -676,13 +690,15 @@ fn test() {
     }
 
     const MAX_SEED: u64 = 2_u64.pow(10);
+    const WINDOW_NAMES: &[&str] = &["a"]; // ["a", "b", "c"]
+
     let assertions: Vec<_> = (0..MAX_SEED)
         .into_par_iter()
         .filter_map(|seed| {
             println!("SEED = {seed}");
             let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
             let mut random_sequence = [0_u8; 2_usize.pow(10)];
-            for value in random_sequence.iter_mut() {
+            for value in &mut random_sequence {
                 *value = rng.random::<u8>();
             }
 
@@ -744,7 +760,7 @@ fn test() {
                             .unwrap()
                             .call(&mut store, &args, &mut results)
                             .ok()
-                            .map(|_| PreMergeOutcome {
+                            .map(|()| PreMergeOutcome {
                                 args,
                                 results,
                                 function_name: export.name().to_string(),
@@ -765,9 +781,8 @@ fn test() {
         .collect();
 
     // TODO: Should become more than 1, to force merge
-    const WINDOW_NAMES: &[&str] = &["a"]; // ["a", "b", "c"]
-    const WINDOW_WIDTH: usize = WINDOW_NAMES.len();
-    assertions.windows(WINDOW_WIDTH).for_each(|window| {
+    let window_width: usize = WINDOW_NAMES.len();
+    assertions.windows(window_width).for_each(|window| {
         let modules: Vec<_> = window.iter().zip(WINDOW_NAMES).collect();
         let named_modules: Vec<_> = modules
             .iter()
@@ -798,7 +813,7 @@ fn test() {
         let module = Module::from_binary(engine, &merged).unwrap();
         let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-        window.iter().for_each(|asserted_module| {
+        for asserted_module in window {
             asserted_module
                 .expected_outcomes
                 .iter()
@@ -823,6 +838,6 @@ fn test() {
                         },
                     );
                 });
-        });
+        }
     });
 }
