@@ -10,7 +10,7 @@ walrus = { version = "0.23.3" }
 derive_more = { version = "2", features = ["from"] }
 
 [dev-dependencies]
-wasmtime = { version = "34.0.0" }
+wasmtime = { version = "34.0" }
 wat = { version = "1.235.0" }
 itertools = "0.14.0"
 wasm-smith = { version = "0.235.0" }
