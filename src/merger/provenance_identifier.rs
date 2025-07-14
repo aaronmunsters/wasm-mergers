@@ -28,12 +28,6 @@ impl<Id, Origin: ModuleOrigin> std::ops::Deref for Identifier<Origin, Id> {
     }
 }
 
-impl<Id, Origin: ModuleOrigin> std::ops::DerefMut for Identifier<Origin, Id> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.id
-    }
-}
-
 impl<Id, Origin: ModuleOrigin> From<Id> for Identifier<Origin, Id> {
     fn from(id: Id) -> Self {
         Self {
