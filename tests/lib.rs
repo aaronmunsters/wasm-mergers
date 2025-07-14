@@ -296,7 +296,7 @@ fn merge_cycle_chain() {
             const RATIO_ALLOWED_DELTA: f64 = 0.1; // 10% difference
             assert!(
                 (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-                "Lengths differ by more than 50%: manual = {manual_merged_len}, lib = {lib_merged_len}",
+                "Lengths differ by more than {RATIO_ALLOWED_DELTA}%: manual = {manual_merged_len}, lib = {lib_merged_len}",
             );
         }
 
