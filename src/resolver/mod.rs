@@ -1,4 +1,4 @@
-use derive_more::{From, Into};
+use derive_more::{Display, From, Into};
 use std::{collections::HashSet, hash::Hash};
 use walrus::{LocalId, TypeId, ValType};
 
@@ -34,62 +34,27 @@ impl FuncType {
     }
 }
 
-// TODO: Provide macro support for these repeated wrapper types
+// TODO: Check if the `Display` can be covered as Deref + DerefMut
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct FunctionName(pub(crate) String);
 
-impl AsRef<str> for FunctionName {
-    fn as_ref(&self) -> &str {
-        let Self(n) = self;
-        n
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct TableName(pub(crate) String);
 
-impl AsRef<str> for TableName {
-    fn as_ref(&self) -> &str {
-        let Self(n) = self;
-        n
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct MemoryName(pub(crate) String);
 
-impl AsRef<str> for MemoryName {
-    fn as_ref(&self) -> &str {
-        let Self(n) = self;
-        n
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct GlobalName(pub(crate) String);
 
-impl AsRef<str> for GlobalName {
-    fn as_ref(&self) -> &str {
-        let Self(n) = self;
-        n
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct ModuleName(pub(crate) String);
-
-impl AsRef<str> for ModuleName {
-    fn as_ref(&self) -> &str {
-        let Self(n) = self;
-        n
-    }
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ResolutionSchema<Identifier>

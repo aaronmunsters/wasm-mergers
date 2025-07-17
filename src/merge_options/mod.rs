@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use crate::resolver::FunctionName;
 use crate::resolver::GlobalName;
 use crate::resolver::MemoryName;
@@ -63,6 +65,6 @@ pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
 /// (mod (export "A:f" x)
 ///      (export "B:f" y))
 /// ```
-fn default_rename<T: AsRef<str> + From<String>>(ModuleName(m): ModuleName, v: T) -> T {
-    format!("{m}:{}", v.as_ref()).into()
+fn default_rename<T: Display + From<String>>(ModuleName(m): ModuleName, v: T) -> T {
+    format!("{m}:{v}").into()
 }
