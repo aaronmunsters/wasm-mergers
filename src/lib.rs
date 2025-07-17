@@ -1,17 +1,18 @@
 pub mod error;
+pub mod merge_options;
+
 mod merge_builder;
 mod merge_configuration;
-mod merge_options;
 mod merger;
 mod named_module;
 mod resolver;
 
 use error::Error;
 use merge_builder::Resolver;
+use merge_options::MergeOptions;
 use merger::Merger;
 
 pub use merge_configuration::MergeConfiguration;
-pub use merge_options::MergeOptions;
 pub use named_module::NamedBufferModule;
 pub use named_module::NamedModule;
 

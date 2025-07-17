@@ -3,7 +3,10 @@ use std::iter::once;
 use itertools::Itertools;
 use wasmtime::*;
 use wat::parse_str;
-use webassembly_mergers::{MergeConfiguration, MergeOptions, NamedModule};
+use webassembly_mergers::{
+    MergeConfiguration, NamedModule,
+    merge_options::{ClashingExports, DEFAULT_RENAMER, MergeOptions},
+};
 
 mod wasmtime_macros; // Bring macros in scope
 
@@ -666,7 +669,8 @@ fn test_multi_memory() {
     ];
 
     let merge_options = MergeOptions {
-        rename_duplicate_exports: true,
+        clashing_exports: ClashingExports::Rename(DEFAULT_RENAMER),
+        ..Default::default()
     };
 
     let merged = MergeConfiguration::new(modules, merge_options)
@@ -831,7 +835,8 @@ fn test() {
         let refs = named_modules.iter().collect::<Vec<_>>();
         let modules: &[&NamedModule<'_, &[u8]>] = &refs[..];
         let merge_options = MergeOptions {
-            rename_duplicate_exports: true,
+            clashing_exports: ClashingExports::Rename(DEFAULT_RENAMER),
+            ..Default::default()
         };
         let mut merge_configuration =
             webassembly_mergers::MergeConfiguration::new(modules, merge_options);

@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
+use crate::merge_options::ClashingExports;
 use crate::merger::old_to_new_mapping::OldIdFunction;
 
 use crate::{MergeOptions, resolver::ModuleName};
@@ -253,7 +254,8 @@ impl ResolutionSchemaBuilder {
             .into());
         }
 
-        if name_clashes.is_empty() || merge_options.rename_duplicate_exports {
+        let allow_rename = matches!(merge_options.clashing_exports, ClashingExports::Rename(_));
+        if name_clashes.is_empty() || allow_rename {
             Ok(resolved_schema)
         } else {
             Err(ValidationFailure {
