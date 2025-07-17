@@ -328,6 +328,44 @@ fn merge_cycle_chain() {
     }
 }
 
+/// Verifies that merging a set of modules that forms infinite loop
+/// is reported as a wrong definition.
+///
+///  ```txt
+///     func_a ⇄ func_a'
+///  ```
+///
+/// where `func_a` and `func_a'` are defined as a lookup of each other.
+#[test]
+fn illegal_loop() {
+    const WAT_MOD_B: &str = r#"
+      (module
+        (import "WAT_MOD_A" "func_a" (func $func_a (param i32) (result i32)))
+        (export "func_b" (func $func_a)))
+      "#;
+
+    const WAT_MOD_A: &str = r#"
+      (module
+        (import "WAT_MOD_B" "func_b" (func $func_b (param i32) (result i32)))
+        (export "func_a" (func $func_b)))
+      "#;
+
+    let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
+    let wat_mod_b = parse_str(WAT_MOD_B).unwrap();
+
+    let modules: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("WAT_MOD_A", &wat_mod_a),
+        &NamedModule::new("WAT_MOD_B", &wat_mod_b),
+    ];
+
+    // TODO: Cover the specific case as the error kind, not `is_err()`
+    assert!(
+        MergeConfiguration::new(&modules, MergeOptions::default())
+            .merge()
+            .is_err()
+    );
+}
+
 /// 3-Module Pass-Through Chain
 ///
 /// A → B → C
