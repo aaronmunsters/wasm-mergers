@@ -363,7 +363,7 @@ fn illegal_loop() {
 
     // TODO: Cover the specific case as the error kind, not `is_err()`
     assert!(
-        MergeConfiguration::new(&modules, MergeOptions::default())
+        MergeConfiguration::new(modules, MergeOptions::default())
             .merge()
             .is_err()
     );
