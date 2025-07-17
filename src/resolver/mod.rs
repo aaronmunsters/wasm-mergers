@@ -111,7 +111,7 @@ pub(crate) struct FunctionExportSpecification<Identifier> {
     pub(crate) module: ModuleName,
     pub(crate) name: FunctionName,
     pub(crate) ty: FuncType,
-    pub(crate) index: Identifier,
+    pub(crate) function_index: Identifier,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]

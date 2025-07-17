@@ -98,7 +98,7 @@ impl Resolver {
                     module: (*considering_module).into(),
                     name: export.name.as_str().into(),
                     ty,
-                    index: (old_id),
+                    function_index: (old_id),
                 };
                 self.resolver.add_export(export);
             } else {

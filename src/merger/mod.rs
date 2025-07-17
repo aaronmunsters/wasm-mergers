@@ -92,7 +92,8 @@ impl Merger {
                 export_specification,
                 resolved_imports,
             } = resolved;
-            let old_exported_function_index: Identifier<Old, _> = export_specification.index;
+            let old_exported_function_index: Identifier<Old, _> =
+                export_specification.function_index;
             let new_resolved_function_index: Identifier<New, _> = *mapping
                 .funcs
                 .get(&(
@@ -493,7 +494,7 @@ impl Merger {
                             let _ = export_id; // The export ID is not of interest for this module
                         }
                         MergedExport::Unresolved(export_spec) => {
-                            debug_assert_eq!(export_spec.index, before_id);
+                            debug_assert_eq!(export_spec.function_index, before_id);
                             debug_assert_eq!(export_spec.name, function_name);
 
                             let duplicate_function_export =

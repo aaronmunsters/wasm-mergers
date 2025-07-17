@@ -109,8 +109,8 @@ impl ResolutionSchema<OldIdFunction> {
             .partition(|i| i.export_specification.module == *module);
         resolveds_from_module.sort_by(|a, b| {
             a.export_specification
-                .index
-                .cmp(&b.export_specification.index)
+                .function_index
+                .cmp(&b.export_specification.function_index)
         });
         self.resolved = resolveds.into_iter().collect();
         resolveds_from_module
@@ -142,7 +142,7 @@ impl ResolutionSchema<OldIdFunction> {
             unresolved_exports
                 .into_iter()
                 .partition(|i| i.module == *module);
-        unresolved_exports_from_module.sort_by(|a, b| a.index.cmp(&b.index));
+        unresolved_exports_from_module.sort_by(|a, b| a.function_index.cmp(&b.function_index));
         self.unresolved_exports = unresolved_exports.into_iter().collect();
         unresolved_exports_from_module
     }
