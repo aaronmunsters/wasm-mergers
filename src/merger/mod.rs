@@ -507,7 +507,7 @@ impl Merger {
                                     ClashingExports::Rename(renamer) => {
                                         let FunctionName(renamed) = (renamer.functions)(
                                             considering_module_name.clone(),
-                                            function_name,
+                                            &function_name,
                                         );
                                         let new_function_id: Identifier<New, _> = *self
                                             .mapping
@@ -556,7 +556,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let TableName(renamed) =
-                                    (renamer.tables)(considering_module_name.clone(), table_name);
+                                    (renamer.tables)(considering_module_name.clone(), &table_name);
                                 let new_table_id: Identifier<New, _> = *self
                                     .mapping
                                     .tables
@@ -598,7 +598,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let MemoryName(renamed) =
-                                    (renamer.memory)(considering_module_name.clone(), memory_name);
+                                    (renamer.memory)(considering_module_name.clone(), &memory_name);
                                 let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories
@@ -640,8 +640,10 @@ impl Merger {
                     if let Some(duplicate_global_export) = duplicate_global_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let GlobalName(renamed) =
-                                    (renamer.globals)(considering_module_name.clone(), global_name);
+                                let GlobalName(renamed) = (renamer.globals)(
+                                    considering_module_name.clone(),
+                                    &global_name,
+                                );
                                 let new_global_id: Identifier<New, _> = *self
                                     .mapping
                                     .globals

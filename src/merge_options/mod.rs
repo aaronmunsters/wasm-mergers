@@ -15,10 +15,10 @@ pub enum ResolvedExports {
 
 #[derive(Debug, Hash, Clone)]
 pub struct RenameStrategy {
-    pub functions: fn(ModuleName, FunctionName) -> FunctionName,
-    pub tables: fn(ModuleName, TableName) -> TableName,
-    pub memory: fn(ModuleName, MemoryName) -> MemoryName,
-    pub globals: fn(ModuleName, GlobalName) -> GlobalName,
+    pub functions: fn(ModuleName, &FunctionName) -> FunctionName,
+    pub tables: fn(ModuleName, &TableName) -> TableName,
+    pub memory: fn(ModuleName, &MemoryName) -> MemoryName,
+    pub globals: fn(ModuleName, &GlobalName) -> GlobalName,
 }
 
 #[derive(Debug, Default, Hash, Clone)]
@@ -65,6 +65,6 @@ pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
 /// (mod (export "A:f" x)
 ///      (export "B:f" y))
 /// ```
-fn default_rename<T: Display + From<String>>(ModuleName(m): ModuleName, v: T) -> T {
+fn default_rename<T: Display + From<String>>(ModuleName(m): ModuleName, v: &T) -> T {
     format!("{m}:{v}").into()
 }
