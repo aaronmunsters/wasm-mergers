@@ -2,8 +2,10 @@ use std::collections::HashMap;
 
 use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId};
 
-use crate::merger::provenance_identifier::{Identifier, New, Old};
-use crate::resolver::ModuleName;
+use crate::{
+    merger::provenance_identifier::{Identifier, New, Old},
+    resolver::graph_resolution::IdentifierModule,
+};
 
 pub(crate) type OldIdTable = Identifier<Old, TableId>;
 pub(crate) type NewIdTable = Identifier<New, TableId>;
@@ -28,11 +30,11 @@ pub(crate) type NewIdLocal = Identifier<New, LocalId>;
 
 #[derive(Default, Debug, Clone)]
 pub struct Mapping {
-    pub tables: HashMap<(ModuleName, OldIdTable), NewIdTable>,
-    pub globals: HashMap<(ModuleName, OldIdGlobal), NewIdGlobal>,
-    pub memories: HashMap<(ModuleName, OldIdMemory), NewIdMemory>,
-    pub datas: HashMap<(ModuleName, OldIdData), NewIdData>,
-    pub elements: HashMap<(ModuleName, OldIdElement), NewIdElement>,
-    pub funcs: HashMap<(ModuleName, OldIdFunction), NewIdFunction>,
-    pub locals: HashMap<(ModuleName, OldIdLocal), NewIdLocal>,
+    pub tables: HashMap<(IdentifierModule, OldIdTable), NewIdTable>,
+    pub globals: HashMap<(IdentifierModule, OldIdGlobal), NewIdGlobal>,
+    pub memories: HashMap<(IdentifierModule, OldIdMemory), NewIdMemory>,
+    pub datas: HashMap<(IdentifierModule, OldIdData), NewIdData>,
+    pub elements: HashMap<(IdentifierModule, OldIdElement), NewIdElement>,
+    pub funcs: HashMap<(IdentifierModule, OldIdFunction), NewIdFunction>,
+    pub locals: HashMap<(IdentifierModule, OldIdLocal), NewIdLocal>,
 }

@@ -15,7 +15,7 @@ use walrus::ir::{
 };
 
 use crate::resolver::FuncType;
-use crate::resolver::ModuleName;
+use crate::resolver::graph_resolution::IdentifierModule;
 
 use super::old_to_new_mapping::Mapping;
 use super::old_to_new_mapping::NewIdData;
@@ -87,7 +87,7 @@ pub(super) struct WasmFunctionCopy<'old_module, 'new_module> {
 
     old_function: &'old_module LocalFunction,
 
-    old_module_name: ModuleName,
+    old_module_name: IdentifierModule,
     mapping: &'old_module mut Mapping,
 
     new_function_index: NewIdFunction,
@@ -109,7 +109,7 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
         new_module: &'new_module mut Module,
 
         old_function: &'old_module LocalFunction,
-        old_module_name: ModuleName,
+        old_module_name: IdentifierModule,
 
         mapping: &'old_module mut Mapping,
 

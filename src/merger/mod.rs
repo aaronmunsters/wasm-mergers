@@ -9,9 +9,9 @@ use crate::error::{Error, ExportKind};
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
+use crate::resolver::FuncType;
 use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
-use crate::resolver::graph_resolution::{Export, Function, Import, Local, Node};
-use crate::resolver::{FuncType, ModuleName};
+use crate::resolver::graph_resolution::{Export, Function, IdentifierModule, Import, Local, Node};
 
 pub(crate) mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;
@@ -33,7 +33,7 @@ pub(crate) struct Merger {
 
 // TODO: dedupe this typedef
 type Locals = Box<[(LocalId, ValType)]>;
-type OldFunctionRef = (ModuleName, OldIdFunction);
+type OldFunctionRef = (IdentifierModule, OldIdFunction);
 
 trait AsMappingRef {
     fn to_mapping_ref(&self) -> OldFunctionRef;
@@ -52,19 +52,19 @@ impl AsMappingRef for Node<Function, FuncType, OldIdFunction, Locals> {
 impl AsMappingRef for Import<Function, FuncType, OldIdFunction> {
     fn to_mapping_ref(&self) -> OldFunctionRef {
         let index: OldIdFunction = *self.imported_index();
-        (self.importing_module().identifier().into(), index)
+        (self.importing_module().clone(), index)
     }
 }
 impl<Data> AsMappingRef for Local<Function, FuncType, OldIdFunction, Data> {
     fn to_mapping_ref(&self) -> OldFunctionRef {
         let index: OldIdFunction = *self.index();
-        (self.module().identifier().into(), index)
+        (self.module().clone(), index)
     }
 }
 impl AsMappingRef for Export<Function, FuncType, OldIdFunction> {
     fn to_mapping_ref(&self) -> OldFunctionRef {
         let index: OldIdFunction = *self.index();
-        (self.module().identifier().into(), index)
+        (self.module().clone(), index)
     }
 }
 
@@ -88,7 +88,7 @@ impl Merger {
         mapping: &mut Mapping,
         old_local: Local<Function, FuncType, OldIdFunction, Locals>,
     ) -> NewIdFunction {
-        let old_module: ModuleName = old_local.module().identifier().to_string().into();
+        let old_module: IdentifierModule = old_local.module().identifier().to_string().into();
         let ty = old_local.ty();
         let locals = old_local
             .data()
@@ -211,7 +211,8 @@ impl Merger {
         } = considering_module;
 
         // let mut import_covered = HashSet::new();
-        let considering_module_name = ModuleName::from(considering_module_name_str);
+        let considering_module_name: IdentifierModule =
+            considering_module_name_str.to_string().into();
 
         for ty in types.iter() {
             self.merged.types.add(ty.params(), ty.results());
@@ -445,10 +446,11 @@ impl Merger {
                         );
                     } else {
                         #[cfg(debug_assertions)]
-                        debug_assert!(self.mapping.funcs.contains_key(&(
-                            import.importing_module.identifier().into(),
-                            (*before_id).into(),
-                        )));
+                        debug_assert!(
+                            self.mapping
+                                .funcs
+                                .contains_key(&(import.importing_module, (*before_id).into(),))
+                        );
                     }
                 }
                 // What if the imported value is duplicate BUT different in shape (eg. element_ty) among multiple imports?
@@ -549,9 +551,8 @@ impl Merger {
                     if let Some(duplicate_table_export) = duplicate_table_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let ModuleName(module_name) = &considering_module_name;
                                 let renamed =
-                                    (renamer.tables)(module_name.to_string().into(), table_name);
+                                    (renamer.tables)(considering_module_name.clone(), table_name);
 
                                 let new_table_id: Identifier<New, _> = *self
                                     .mapping
@@ -593,9 +594,8 @@ impl Merger {
                     if let Some(duplicate_memory_export) = duplicate_memory_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let ModuleName(module_name) = &considering_module_name;
                                 let renamed =
-                                    (renamer.memory)(module_name.to_string().into(), memory_name);
+                                    (renamer.memory)(considering_module_name.clone(), memory_name);
                                 let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories
@@ -637,9 +637,8 @@ impl Merger {
                     if let Some(duplicate_global_export) = duplicate_global_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let ModuleName(module_name) = &considering_module_name;
                                 let renamed =
-                                    (renamer.globals)(module_name.to_string().into(), global_name);
+                                    (renamer.globals)(considering_module_name.clone(), global_name);
                                 let new_global_id: Identifier<New, _> = *self
                                     .mapping
                                     .globals
@@ -729,11 +728,11 @@ impl Merger {
 }
 
 trait CopyForMerger {
-    fn copy_for(&self, merger: &Merger, considering_module: ModuleName) -> Self;
+    fn copy_for(&self, merger: &Merger, considering_module: IdentifierModule) -> Self;
 }
 
 impl CopyForMerger for ConstExpr {
-    fn copy_for(&self, merger: &Merger, considering_module_name: ModuleName) -> Self {
+    fn copy_for(&self, merger: &Merger, considering_module_name: IdentifierModule) -> Self {
         match self {
             ConstExpr::Value(value) => ConstExpr::Value(*value),
             ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),

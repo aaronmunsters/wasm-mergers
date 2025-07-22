@@ -50,7 +50,3 @@ pub struct MemoryName(pub(crate) String);
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
 #[from(&str, String)]
 pub struct GlobalName(pub(crate) String);
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
-#[from(&str, String)]
-pub struct ModuleName(pub(crate) String);
