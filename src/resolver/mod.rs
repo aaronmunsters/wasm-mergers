@@ -388,11 +388,8 @@ where
             self.graph
                 .try_add_edge(from, to, edge.clone())
                 .map_err(|cycle_err| {
-                    #[cfg(debug_assertions)] // TODO: is there a way to make this pattern match exhaustive? // [1]
-                    debug_assert!(matches!(
-                        cycle_err,
-                        AcyclicEdgeError::SelfLoop | AcyclicEdgeError::Cycle(_)
-                    ));
+                    #[cfg(debug_assertions)]
+                    debug_assert!(matches!(cycle_err, AcyclicEdgeError::Cycle(_)));
                     error::Cycles
                 })?;
         }
@@ -523,8 +520,3 @@ where
             .ok_or(error::ExportNameClash)
     }
 }
-
-/*
-[1] Reason why; if in the future `AcyclicEdgeError` would grow to include more
-    kinds of errors, this debug assertion would not catch those. As such this
-    code is brittle. */
