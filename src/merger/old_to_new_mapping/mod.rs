@@ -4,7 +4,7 @@ use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId
 
 use crate::{
     merger::provenance_identifier::{Identifier, New, Old},
-    resolver::graph_resolution::IdentifierModule,
+    resolver::IdentifierModule,
 };
 
 pub(crate) type OldIdTable = Identifier<Old, TableId>;

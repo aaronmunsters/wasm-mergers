@@ -1,8 +1,6 @@
 use std::collections::HashSet as Set;
 
-use crate::resolver::graph_resolution::IdentifierItem;
-use crate::resolver::graph_resolution::IdentifierModule;
-use crate::resolver::graph_resolution::{Function, Global, Memory, Table};
+use crate::resolver::{Function, Global, IdentifierItem, IdentifierModule, Memory, Table};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
 pub enum ResolvedExports {

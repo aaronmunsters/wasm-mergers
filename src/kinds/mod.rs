@@ -1,7 +1,7 @@
 use std::hash::Hash;
 use walrus::{Module, TypeId, ValType};
 
-pub use crate::resolver::graph_resolution::Function;
+pub use crate::resolver::Function;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct FuncType {

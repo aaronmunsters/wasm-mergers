@@ -15,7 +15,7 @@ use walrus::ir::{
 };
 
 use crate::kinds::FuncType;
-use crate::resolver::graph_resolution::IdentifierModule;
+use crate::resolver::IdentifierModule;
 
 use super::old_to_new_mapping::Mapping;
 use super::old_to_new_mapping::NewIdData;

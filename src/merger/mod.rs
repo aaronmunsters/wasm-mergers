@@ -10,8 +10,8 @@ use crate::kinds::FuncType;
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
-use crate::resolver::graph_resolution::{Export, Function, IdentifierModule, Import, Local, Node};
+use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::{Export, Function, IdentifierModule, Import, Local, Node};
 
 pub(crate) mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;

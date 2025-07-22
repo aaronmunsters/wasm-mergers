@@ -14,12 +14,8 @@ use crate::merger::old_to_new_mapping::OldIdFunction;
 use crate::merger::provenance_identifier::Identifier;
 use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::graph_resolution::Export;
-use crate::resolver::graph_resolution::Function;
-use crate::resolver::graph_resolution::Import;
-use crate::resolver::graph_resolution::Local;
-use crate::resolver::graph_resolution::Resolver as GraphResolver;
-use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
+use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::{Export, Function, Import, Local, Resolver as GraphResolver};
 
 // TODO: dedupe this type def
 type Locals = Box<[(LocalId, ValType)]>;

@@ -4,7 +4,7 @@ use std::{collections::HashSet as Set, fmt::Debug};
 use petgraph::{Direction, prelude::*, visit::IntoNodeReferences};
 
 use crate::merge_options::ExportIdentifier;
-use crate::resolver::graph_resolution::IdentifierItem;
+use crate::resolver::IdentifierItem;
 
 use super::{Export, Import, Linked, Node};
 
@@ -153,7 +153,7 @@ where
 #[cfg(test)]
 mod dependency_tests {
     use super::*;
-    use crate::resolver::graph_resolution::*;
+    use crate::resolver::*;
 
     type TestKind = ();
     type TestType = ();
