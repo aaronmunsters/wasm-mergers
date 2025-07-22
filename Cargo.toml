@@ -8,6 +8,7 @@ anyhow = { version = "1.0.98" }
 thiserror = { version = "2.0.12" }
 walrus = { version = "0.23.3" }
 derive_more = { version = "2", features = ["from", "into", "display"] }
+petgraph = { version = "0.8.2" }
 
 [dev-dependencies]
 wasmtime = { version = "34.0" }

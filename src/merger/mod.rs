@@ -2,19 +2,16 @@ use core::convert::From;
 
 use walrus::{
     ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
-    FunctionKind, GlobalKind, IdsToIndices, ImportKind, Module, Table,
+    FunctionKind, GlobalKind, IdsToIndices, ImportKind, LocalId, Module, Table, ValType,
 };
 
 use crate::error::{Error, ExportKind};
 use crate::merge_options::{ClashingExports, MergeOptions};
+use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::identified_resolution_schema::{
-    MergedExport, MergedImport, OrderedResolutionSchema,
-};
-use crate::resolver::{
-    FunctionImportSpecification, FunctionName, FunctionSpecification, GlobalName, MemoryName,
-    ModuleName, Resolved, TableName,
-};
+use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
+use crate::resolver::graph_resolution::{Export, Function, Import, Local, Node};
+use crate::resolver::{FuncType, ModuleName};
 
 pub(crate) mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;
@@ -27,103 +24,165 @@ use provenance_identifier::{Identifier, New, Old};
 
 pub(crate) struct Merger {
     options: MergeOptions,
-    resolution_schema: OrderedResolutionSchema,
     merged: Module,
     mapping: Mapping,
     names: Vec<(String, String)>,
     starts: Vec<FunctionId>,
+    reduced_dependencies: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
+}
+
+// TODO: dedupe this typedef
+type Locals = Box<[(LocalId, ValType)]>;
+type OldFunctionRef = (ModuleName, OldIdFunction);
+
+trait AsMappingRef {
+    fn to_mapping_ref(&self) -> OldFunctionRef;
+}
+
+impl AsMappingRef for Node<Function, FuncType, OldIdFunction, Locals> {
+    fn to_mapping_ref(&self) -> OldFunctionRef {
+        match self {
+            Node::Import(import) => import.to_mapping_ref(),
+            Node::Local(local) => local.to_mapping_ref(),
+            Node::Export(export) => export.to_mapping_ref(),
+        }
+    }
+}
+
+impl AsMappingRef for Import<Function, FuncType, OldIdFunction> {
+    fn to_mapping_ref(&self) -> OldFunctionRef {
+        let index: OldIdFunction = *self.imported_index();
+        (self.importing_module().identifier().into(), index)
+    }
+}
+impl<Data> AsMappingRef for Local<Function, FuncType, OldIdFunction, Data> {
+    fn to_mapping_ref(&self) -> OldFunctionRef {
+        let index: OldIdFunction = *self.index();
+        (self.module().identifier().into(), index)
+    }
+}
+impl AsMappingRef for Export<Function, FuncType, OldIdFunction> {
+    fn to_mapping_ref(&self) -> OldFunctionRef {
+        let index: OldIdFunction = *self.index();
+        (self.module().identifier().into(), index)
+    }
 }
 
 impl Merger {
+    fn add_new_import(
+        module: &mut Module,
+        old_import: Import<Function, FuncType, OldIdFunction>,
+    ) -> NewIdFunction {
+        let module_identifier = old_import.exporting_module().identifier();
+        let name = old_import.exporting_identifier().identifier();
+        let ty = old_import.ty().add_to_module(module);
+        let (new_id_function, new_id_import) = module.add_import_func(module_identifier, name, ty);
+        // Consider it as a new function
+        let new_id_function: NewIdFunction = new_id_function.into();
+        let _ = new_id_import; // The particular ID is not relevant post merge
+        new_id_function
+    }
+
+    fn add_new_local(
+        module: &mut Module,
+        mapping: &mut Mapping,
+        old_local: Local<Function, FuncType, OldIdFunction, Locals>,
+    ) -> NewIdFunction {
+        let old_module: ModuleName = old_local.module().identifier().to_string().into();
+        let ty = old_local.ty();
+        let locals = old_local
+            .data()
+            .iter()
+            .map(|(old_id, ty)| {
+                let old_id: Identifier<Old, _> = (*old_id).into();
+                let new_id: Identifier<New, _> = module.locals.add(*ty).into();
+                mapping.locals.insert((old_module.clone(), old_id), new_id);
+                *new_id
+            })
+            .collect();
+        let builder = FunctionBuilder::new(&mut module.types, ty.params(), ty.results());
+        let new_function_index = builder.finish(locals, &mut module.funcs);
+        let new_function_index: Identifier<New, _> = new_function_index.into();
+        new_function_index
+    }
+
+    fn add_new_export(
+        module: &mut Module,
+        old_export: Export<Function, FuncType, OldIdFunction>,
+        new_index: NewIdFunction,
+    ) {
+        let identifier = old_export.identifier().identifier();
+        let export_index = module
+            .exports
+            .add(identifier, ExportItem::Function(*new_index));
+        let _ = export_index; // The particular ID is not relevant post merge
+    }
+
     #[must_use]
-    pub(crate) fn new(resolution_schema: OrderedResolutionSchema, options: MergeOptions) -> Self {
+    pub(crate) fn new(
+        reduced_dependencies: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
+        options: MergeOptions,
+    ) -> Self {
         // Create new empty Wasm module
-        let mut merged = Module::default();
-        let mut mapping = Mapping::default();
+        let mut new_merged = Module::default();
+        let mut new_mapping = Mapping::default();
 
-        for import_specification in resolution_schema.unresolved_imports_iter() {
-            let FunctionImportSpecification {
-                importing_module,
-                exporting_module: ModuleName(exporting_module_name),
-                name: FunctionName(function_name),
-                ty,
-                index: old_function_index,
-            } = import_specification;
-            let ty = merged.types.add(ty.params(), ty.results());
-            let (new_function_index, new_import_index) =
-                merged.add_import_func(exporting_module_name, function_name, ty);
-            let _: Identifier<New, _> = new_import_index.into();
-            let new_function_index: Identifier<New, _> = new_function_index.into();
-            mapping.funcs.insert(
-                (importing_module.clone(), *old_function_index),
-                new_function_index,
-            );
-        }
-
-        for local_function_specification in resolution_schema.get_local_specifications() {
-            let FunctionSpecification {
-                defining_module,
-                ty,
-                index: old_function_index,
-                locals,
-            } = local_function_specification;
-            let locals = locals
-                .iter()
-                .map(|(old_id, ty)| {
-                    let old_id: Identifier<Old, _> = (*old_id).into();
-                    let new_id: Identifier<New, _> = merged.locals.add(*ty).into();
-                    mapping
-                        .locals
-                        .insert((defining_module.clone(), old_id), new_id);
-                    *new_id
-                })
-                .collect();
-            let builder = FunctionBuilder::new(&mut merged.types, ty.params(), ty.results());
-            let new_function_index = builder.finish(locals, &mut merged.funcs);
-            let new_function_index: Identifier<New, _> = new_function_index.into();
-            mapping.funcs.insert(
-                (defining_module.clone(), *old_function_index),
-                new_function_index,
-            );
-        }
-
-        for resolved in resolution_schema.resolved_iter() {
-            let Resolved {
-                export_specification,
-                resolved_imports,
-            } = resolved;
-            let old_exported_function_index: Identifier<Old, _> =
-                export_specification.function_index;
-            let new_resolved_function_index: Identifier<New, _> = *mapping
+        // 1. Include all remaining imports:
+        for old_import in reduced_dependencies.remaining_imports() {
+            let new_import = Self::add_new_import(&mut new_merged, old_import.clone());
+            new_mapping
                 .funcs
-                .get(&(
-                    export_specification.module.clone(),
-                    old_exported_function_index,
-                ))
-                .unwrap();
-            for resolved_import in resolved_imports {
-                let FunctionImportSpecification {
-                    importing_module,
-                    exporting_module,
-                    name: _,
-                    ty: _,
-                    index: old_function_index,
-                } = resolved_import;
-                debug_assert_eq!(*exporting_module, export_specification.module);
-                mapping.funcs.insert(
-                    (importing_module.clone(), *old_function_index),
-                    new_resolved_function_index,
-                );
+                .insert(old_import.to_mapping_ref(), new_import);
+        }
+
+        // 2. Include all locals:
+        reduced_dependencies
+            .reduction_map()
+            .keys()
+            .filter_map(|node| node.as_local())
+            .for_each(|old_local| {
+                let new_local =
+                    Self::add_new_local(&mut new_merged, &mut new_mapping, old_local.clone());
+                new_mapping
+                    .funcs
+                    .insert(old_local.to_mapping_ref(), new_local);
+            });
+
+        for (node, reduced) in reduced_dependencies.reduction_map().iter() {
+            // Find location of reduced node:
+            let reduced = new_mapping.funcs.get(&reduced.to_mapping_ref()).cloned();
+
+            // The reduced should be present in the new mapping
+            #[cfg(debug_assertions)]
+            debug_assert!(reduced.is_some());
+
+            // Inject pointer from old to new
+            if let Some(reduced) = reduced {
+                new_mapping.funcs.insert(node.to_mapping_ref(), reduced);
             }
         }
 
+        for old_export in reduced_dependencies.remaining_exports() {
+            let reduced = new_mapping.funcs.get(&old_export.to_mapping_ref());
+
+            // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
+            // The reduced should be present in the new mapping
+            #[cfg(debug_assertions)]
+            debug_assert!(reduced.is_some());
+
+            // Inject pointer from old to new
+            if let Some(reduced) = reduced {
+                Self::add_new_export(&mut new_merged, old_export.clone(), *reduced);
+            };
+        }
+
         Self {
-            resolution_schema,
-            merged,
-            mapping,
+            merged: new_merged,           // merged,
+            mapping: new_mapping.clone(), // mapping,
             names: vec![],
             starts: vec![],
             options,
+            reduced_dependencies,
         }
     }
 
@@ -356,41 +415,40 @@ impl Merger {
         for import in imports.iter() {
             match &import.kind {
                 ImportKind::Function(before_id) => {
-                    let before_id: Identifier<Old, _> = (*before_id).into();
-                    // import_covered.insert(before_id);
-                    let exporting_module = import.module.as_str().into();
-                    let importing_module = considering_module_name.clone();
-                    let function_name = import.name.as_str().into();
-                    match self.resolution_schema.determine_merged_import(
-                        &exporting_module,
-                        &function_name,
-                        &importing_module,
-                    ) {
-                        MergedImport::Resolved => {
-                            // If it is resolved, another module will include it
-                        }
-                        MergedImport::Unresolved(import_spec) => {
-                            let FunctionImportSpecification {
-                                importing_module: ModuleName(importing_module_name),
-                                exporting_module: _,
-                                name: FunctionName(function_name),
-                                ty: _,
-                                index: _,
-                            } = import_spec;
+                    let ty = funcs.get(*before_id).ty();
+                    let ty = FuncType::from_types(ty, types);
 
-                            // If it is unresolved, assert it was added in the merged output
-                            let import_id: Identifier<New, _> = *self
-                                .mapping
-                                .funcs
-                                .get(&(importing_module, before_id))
-                                .unwrap();
-                            let new_import = self.merged.imports.get_imported_func(*import_id);
-                            debug_assert!(
-                                new_import.is_some_and(|import| import.name == function_name
-                                    || (import.name.contains(&importing_module_name)
-                                        && import.name.contains(&function_name)))
-                            );
-                        }
+                    let import: Import<Function, FuncType, Identifier<Old, FunctionId>> = Import {
+                        exporting_module: import.module.to_string().into(),
+                        importing_module: module.name.to_string().into(),
+                        exporting_identifier: import.name.to_string().into(),
+                        imported_index: Identifier::<Old, _>::from(*before_id),
+                        kind: Function,
+                        ty,
+                    };
+
+                    if self
+                        .reduced_dependencies
+                        .remaining_imports()
+                        .contains(&import)
+                    {
+                        // Assert it is present
+                        #[cfg(debug_assertions)]
+                        debug_assert!(
+                            self.merged
+                                .imports
+                                .get_func(
+                                    import.exporting_module.identifier(),
+                                    import.exporting_identifier.identifier()
+                                )
+                                .is_ok()
+                        );
+                    } else {
+                        #[cfg(debug_assertions)]
+                        debug_assert!(self.mapping.funcs.contains_key(&(
+                            import.importing_module.identifier().into(),
+                            (*before_id).into(),
+                        )));
                     }
                 }
                 // What if the imported value is duplicate BUT different in shape (eg. element_ty) among multiple imports?
@@ -473,76 +531,12 @@ impl Merger {
                 //        If the function cannot be resolved, & it name-clashes
                 //        with another function ... then?
                 ExportItem::Function(before_id) => {
-                    let before_id: Identifier<Old, _> = (*before_id).into();
-                    let exporting_module = considering_module_name.clone();
-                    let function_name = export.name.as_str().into();
-                    match self
-                        .resolution_schema
-                        .determine_merged_export(&exporting_module, &function_name)
-                    {
-                        MergedExport::Resolved => {
-                            // FIXME: allow hiding resolved functions
-                            let new_function_id: Identifier<New, _> = *self
-                                .mapping
-                                .funcs
-                                .get(&(considering_module_name.clone(), before_id))
-                                .unwrap();
-                            let export_id = self
-                                .merged
-                                .exports
-                                .add(&export.name, ExportItem::Function(*new_function_id));
-                            let _ = export_id; // The export ID is not of interest for this module
-                        }
-                        MergedExport::Unresolved(export_spec) => {
-                            debug_assert_eq!(export_spec.function_index, before_id);
-                            debug_assert_eq!(export_spec.name, function_name);
-
-                            let duplicate_function_export =
-                                self.merged.exports.iter().find(|existing_export| {
-                                    existing_export.name == export.name
-                                        && matches!(existing_export.item, ExportItem::Function(_))
-                                });
-                            if let Some(duplicate_function_export) = duplicate_function_export {
-                                match &self.options.clashing_exports {
-                                    ClashingExports::Rename(renamer) => {
-                                        let FunctionName(renamed) = (renamer.functions)(
-                                            considering_module_name.clone(),
-                                            &function_name,
-                                        );
-                                        let new_function_id: Identifier<New, _> = *self
-                                            .mapping
-                                            .funcs
-                                            .get(&(considering_module_name.clone(), before_id))
-                                            .unwrap();
-                                        self.merged
-                                            .exports
-                                            .add(&renamed, ExportItem::Function(*new_function_id));
-                                    }
-                                    ClashingExports::Signal => {
-                                        // TODO: this could be reported early when resolving
-                                        debug_assert_eq!(
-                                            duplicate_function_export.name,
-                                            export.name
-                                        );
-                                        let _ = duplicate_function_export;
-                                        return Err(Error::DuplicateNameExport(
-                                            export.name.clone(),
-                                            ExportKind::Function,
-                                        ));
-                                    }
-                                }
-                            } else {
-                                let new_function_id: Identifier<New, _> = *self
-                                    .mapping
-                                    .funcs
-                                    .get(&(considering_module_name.clone(), before_id))
-                                    .unwrap();
-                                self.merged
-                                    .exports
-                                    .add(&export.name, ExportItem::Function(*new_function_id));
-                            }
-                        }
-                    }
+                    let _ = before_id;
+                    // TODO: self.reduced_dependencies.remaining_imports()
+                    //       contains the import ->
+                    //          if yes -> assert it is present
+                    //          if no -> assert it is in the mapping
+                    // if duplicate stuff stuff cf. history
                 }
                 ExportItem::Table(before_index) => {
                     let duplicate_table_export =
@@ -551,12 +545,14 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Table(_))
                         });
                     let old_table_id: Identifier<Old, _> = (*before_index).into();
-                    let table_name = export.name.as_str().into();
+                    let table_name = export.name.to_string().into();
                     if let Some(duplicate_table_export) = duplicate_table_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let TableName(renamed) =
-                                    (renamer.tables)(considering_module_name.clone(), &table_name);
+                                let ModuleName(module_name) = &considering_module_name;
+                                let renamed =
+                                    (renamer.tables)(module_name.to_string().into(), table_name);
+
                                 let new_table_id: Identifier<New, _> = *self
                                     .mapping
                                     .tables
@@ -564,7 +560,7 @@ impl Merger {
                                     .unwrap();
                                 self.merged
                                     .exports
-                                    .add(&renamed, ExportItem::Table(*new_table_id));
+                                    .add(renamed.identifier(), ExportItem::Table(*new_table_id));
                             }
                             ClashingExports::Signal => {
                                 // TODO: this could be reported early when resolving
@@ -593,12 +589,13 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Memory(_))
                         });
                     let old_memory_id: Identifier<Old, _> = (*before_index).into();
-                    let memory_name = export.name.as_str().into();
+                    let memory_name = export.name.to_string().into();
                     if let Some(duplicate_memory_export) = duplicate_memory_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let MemoryName(renamed) =
-                                    (renamer.memory)(considering_module_name.clone(), &memory_name);
+                                let ModuleName(module_name) = &considering_module_name;
+                                let renamed =
+                                    (renamer.memory)(module_name.to_string().into(), memory_name);
                                 let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories
@@ -606,7 +603,7 @@ impl Merger {
                                     .unwrap();
                                 self.merged
                                     .exports
-                                    .add(&renamed, ExportItem::Memory(*new_memory_id));
+                                    .add(renamed.identifier(), ExportItem::Memory(*new_memory_id));
                             }
                             ClashingExports::Signal => {
                                 // TODO: this could be reported early when resolving
@@ -636,14 +633,13 @@ impl Merger {
                                 && matches!(existing_export.item, ExportItem::Global(_))
                         });
                     let old_global_id: Identifier<Old, _> = (*before_index).into();
-                    let global_name = export.name.as_str().into();
+                    let global_name = export.name.to_string().into();
                     if let Some(duplicate_global_export) = duplicate_global_export {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
-                                let GlobalName(renamed) = (renamer.globals)(
-                                    considering_module_name.clone(),
-                                    &global_name,
-                                );
+                                let ModuleName(module_name) = &considering_module_name;
+                                let renamed =
+                                    (renamer.globals)(module_name.to_string().into(), global_name);
                                 let new_global_id: Identifier<New, _> = *self
                                     .mapping
                                     .globals
@@ -651,7 +647,7 @@ impl Merger {
                                     .unwrap();
                                 self.merged
                                     .exports
-                                    .add(&renamed, ExportItem::Global(*new_global_id));
+                                    .add(renamed.identifier(), ExportItem::Global(*new_global_id));
                             }
                             ClashingExports::Signal => {
                                 // TODO: this could be reported early when resolving

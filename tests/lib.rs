@@ -3,12 +3,21 @@ use std::iter::once;
 use itertools::Itertools;
 use wasmtime::*;
 use wat::parse_str;
-use webassembly_mergers::{
-    MergeConfiguration, NamedModule,
-    merge_options::{ClashingExports, DEFAULT_RENAMER, MergeOptions},
-};
+use webassembly_mergers::merge_options::DEFAULT_RENAMER;
+use webassembly_mergers::merge_options::{ClashingExports, KeepExports, MergeOptions};
+use webassembly_mergers::{MergeConfiguration, NamedModule};
 
 mod wasmtime_macros; // Bring macros in scope
+
+fn iter_permutations<'a>(
+    named_modules: &'a [&NamedModule<'a, &'a [u8]>],
+) -> Vec<Box<[&'a NamedModule<'a, &'a [u8]>]>> {
+    named_modules
+        .iter()
+        .permutations(named_modules.len())
+        .map(|perm| perm.into_iter().copied().collect::<Box<[_]>>())
+        .collect::<Vec<_>>()
+}
 
 /// Merging mutually recursive even and odd functions across modules
 ///
@@ -102,7 +111,13 @@ fn merge_even_odd() {
             &NamedModule::new("odd", &wat_odd),
         ];
 
-        MergeConfiguration::new(modules, MergeOptions::default())
+        let mut merge_conf = MergeOptions::default();
+        let mut keep_exports = KeepExports::default();
+        keep_exports.keep_function("even".to_string().into(), "even".into());
+        keep_exports.keep_function("odd".to_string().into(), "odd".into());
+        merge_conf.keep_exports = Some(keep_exports);
+
+        MergeConfiguration::new(modules, merge_conf)
             .merge()
             .unwrap()
     };
@@ -286,9 +301,13 @@ fn merge_cycle_chain() {
         .permutations(modules.len())
         .map(|perm| {
             let perm: Box<[_]> = perm.into_iter().copied().collect();
-            MergeConfiguration::new(&perm, MergeOptions::default())
-                .merge()
-                .unwrap()
+
+            let mut merge_conf = MergeOptions::default();
+            let mut keep_exports = KeepExports::default();
+            keep_exports.keep_function("WAT_MOD_A".to_string().into(), "func_a".into());
+            merge_conf.keep_exports = Some(keep_exports);
+
+            MergeConfiguration::new(&perm, merge_conf).merge().unwrap()
         })
         .chain(once(manual_merged.clone()))
     {
@@ -361,12 +380,14 @@ fn illegal_loop() {
         &NamedModule::new("WAT_MOD_B", &wat_mod_b),
     ];
 
-    // TODO: Cover the specific case as the error kind, not `is_err()`
-    assert!(
-        MergeConfiguration::new(modules, MergeOptions::default())
-            .merge()
-            .is_err()
-    );
+    let error = MergeConfiguration::new(modules, MergeOptions::default())
+        .merge()
+        .expect_err("Expect infinite cycle loop");
+
+    assert!(matches!(
+        error,
+        webassembly_mergers::error::Error::ImportCycle
+    ));
 }
 
 /// 3-Module Pass-Through Chain
@@ -411,19 +432,21 @@ fn merge_pass_through_module() {
         &NamedModule::new("c", &wat_c),
     ];
 
-    let merged = MergeConfiguration::new(modules, MergeOptions::default())
-        .merge()
-        .expect("Merge failed");
+    for modules in iter_permutations(modules) {
+        let merged = MergeConfiguration::new(&modules, MergeOptions::default())
+            .merge()
+            .expect("Merge failed");
 
-    // Instantiate & run merged module
-    let mut store = Store::<()>::default();
-    let module = Module::from_binary(store.engine(), &merged).unwrap();
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+        // Instantiate & run merged module
+        let mut store = Store::<()>::default();
+        let module = Module::from_binary(store.engine(), &merged).unwrap();
+        let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
-    declare_fns_from_wasm! {instance, store, run [] [i32]};
-    let result = wasm_call!(store, run);
+        declare_fns_from_wasm! {instance, store, run [] [i32]};
+        let result = wasm_call!(store, run);
 
-    assert_eq!(result, 42, "Expected 42 from chained import, got {result}",);
+        assert_eq!(result, 42, "Expected 42 from chained import, got {result}",);
+    }
 }
 
 /// This test defines the Fibonacci function across two mutually dependent modules:
@@ -498,26 +521,35 @@ fn merge_cross_module_fibonacci() {
     ];
 
     // Merge the modules
-    let merged_wasm = MergeConfiguration::new(modules, MergeOptions::default())
-        .merge()
-        .expect("Failed to merge modules");
+    let mut merge_conf: MergeOptions = MergeOptions::default();
+    let mut keep_exports = KeepExports::default();
+    keep_exports.keep_function("fib".to_string().into(), "fib".into());
+    merge_conf.keep_exports = Some(keep_exports);
 
-    // Instantiate merged module
-    let mut store = Store::<()>::default();
-    let module = Module::from_binary(store.engine(), &merged_wasm).expect("Invalid Wasm module");
-    let instance = Instance::new(&mut store, &module, &[]).expect("Failed to instantiate module");
+    for modules in iter_permutations(modules) {
+        let merged_wasm: Vec<u8> = MergeConfiguration::new(&modules, merge_conf.clone())
+            .merge()
+            .expect("Failed to merge modules");
 
-    // Get exported Fibonacci function
-    declare_fns_from_wasm! { instance, store, fib [i32] [i32] };
+        // Instantiate merged module
+        let mut store = Store::<()>::default();
+        let module =
+            Module::from_binary(store.engine(), &merged_wasm).expect("Invalid Wasm module");
+        let instance =
+            Instance::new(&mut store, &module, &[]).expect("Failed to instantiate module");
 
-    // Run and assert behavior
-    for i in 0..20 {
-        let actual = wasm_call!(store, fib, i);
-        let expected = expected_fib(i);
-        assert_eq!(
-            actual, expected,
-            "Mismatch at fib({i}): expected {expected}, got {actual}"
-        );
+        // Get exported Fibonacci function
+        declare_fns_from_wasm! { instance, store, fib [i32] [i32] };
+
+        // Run and assert behavior
+        for i in 0..20 {
+            let actual = wasm_call!(store, fib, i);
+            let expected = expected_fib(i);
+            assert_eq!(
+                actual, expected,
+                "Mismatch at fib({i}): expected {expected}, got {actual}"
+            );
+        }
     }
 }
 

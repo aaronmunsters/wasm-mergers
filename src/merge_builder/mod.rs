@@ -1,26 +1,40 @@
 use std::collections::HashSet;
 
+use walrus::LocalId;
 use walrus::Module;
+use walrus::ValType;
 
 use crate::MergeOptions;
 use crate::error::Error;
+use crate::merge_options::ClashingExports;
+use crate::merge_options::KeepExports;
+use crate::merge_options::LinkTypeMismatch;
+use crate::merger::old_to_new_mapping::OldIdFunction;
 use crate::merger::provenance_identifier::Identifier;
 use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
 use crate::resolver::FuncType;
-use crate::resolver::FunctionExportSpecification;
-use crate::resolver::FunctionImportSpecification;
-use crate::resolver::FunctionSpecification;
-use crate::resolver::ModuleName;
-use crate::resolver::identified_resolution_schema::OrderedResolutionSchema;
-use crate::resolver::resolution_schema::ResolutionSchemaBuilder;
+use crate::resolver::graph_resolution::Export;
+use crate::resolver::graph_resolution::Function;
+use crate::resolver::graph_resolution::Import;
+use crate::resolver::graph_resolution::Local;
+use crate::resolver::graph_resolution::Resolver as GraphResolver;
+use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
 
-#[derive(Debug, Default)]
+// TODO: dedupe this type def
+type Locals = Box<[(LocalId, ValType)]>;
+#[derive(Debug)]
 pub(crate) struct Resolver {
-    resolver: ResolutionSchemaBuilder,
+    graph: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
 }
 
 impl Resolver {
+    pub(crate) fn new() -> Self {
+        Self {
+            graph: GraphResolver::new(),
+        }
+    }
+
     pub(crate) fn consider(&mut self, module: &NamedParsedModule<'_>) -> Result<(), Error> {
         let NamedParsedModule {
             name: considering_module,
@@ -45,14 +59,18 @@ impl Resolver {
                     considering_funcs.get(*old_function_id).ty(),
                     considering_types,
                 );
-                let function_import_specification = FunctionImportSpecification {
-                    importing_module: (*considering_module).into(),
-                    exporting_module: (*import.module).into(),
-                    name: (*import.name).into(),
-                    ty,
-                    index: Identifier::<Old, _>::from(*old_function_id),
-                };
-                self.resolver.add_import(function_import_specification);
+                {
+                    let old_function_id: OldIdFunction = (*old_function_id).into();
+                    let import = Import {
+                        exporting_module: (*import.module).to_string().into(),
+                        importing_module: (*considering_module).to_string().into(),
+                        exporting_identifier: (*import.name).to_string().into(),
+                        imported_index: old_function_id,
+                        kind: Function,
+                        ty,
+                    };
+                    self.graph.add_import(import);
+                }
                 covered_function_imports.insert((old_function_id, import.id()));
             } else {
                 // FIXME: Skipping resolving `tables`, `globals` & `memories`.
@@ -72,12 +90,15 @@ impl Resolver {
                         })
                         .collect::<Vec<_>>()
                         .into_boxed_slice();
-                    self.resolver.add_local_function(FunctionSpecification {
-                        locals,
-                        defining_module: (*considering_module).into(),
-                        ty: FuncType::from_types(local_function.ty(), considering_types),
+
+                    let local = Local {
+                        module: (*considering_module).to_string().into(),
                         index: function.id().into(),
-                    });
+                        kind: Function,
+                        ty: FuncType::from_types(local_function.ty(), considering_types),
+                        data: locals.clone(),
+                    };
+                    self.graph.add_local(local);
                 }
                 walrus::FunctionKind::Import(i) => {
                     debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)));
@@ -94,13 +115,14 @@ impl Resolver {
             if let walrus::ExportItem::Function(id) = export.item {
                 let old_id: Identifier<Old, _> = id.into();
                 let ty = FuncType::from_types(considering_funcs.get(id).ty(), considering_types);
-                let export = FunctionExportSpecification {
-                    module: (*considering_module).into(),
-                    name: export.name.as_str().into(),
+                let export = Export {
+                    module: considering_module.to_string().into(),
+                    identifier: export.name.to_string().into(),
+                    index: old_id,
+                    kind: Function,
                     ty,
-                    function_index: (old_id),
                 };
-                self.resolver.add_export(export);
+                self.graph.add_export(export);
             } else {
                 // FIXME: Skipping resolving `tables`, `globals` & `memories`.
                 println!("Skipping merging for `tables`, `globals`, `memories`");
@@ -112,13 +134,37 @@ impl Resolver {
 
     pub(crate) fn resolve(
         self,
-        modules: &[ModuleName],
         merge_options: &MergeOptions,
-    ) -> Result<OrderedResolutionSchema, Error> {
-        let resolved = self
-            .resolver
-            .validate(merge_options)
-            .map_err(Error::Validation)?;
-        Ok(resolved.assign_identities(modules))
+    ) -> Result<ReducedDependencies<Function, FuncType, OldIdFunction, Locals>, Error> {
+        // Link all up
+        let mut linked = self.graph.link_nodes().map_err(|_| Error::ImportCycle)?;
+
+        // Assert exports are not clashing
+        match &merge_options.clashing_exports {
+            ClashingExports::Rename(rename_strategy) => {
+                linked.clashing_rename(&rename_strategy.functions)
+            }
+            ClashingExports::Signal => linked
+                .clashing_signal()
+                .map_err(|_| Error::ExportNameClash)?,
+        }
+
+        // Assert types match
+        match &merge_options.link_type_mismatch {
+            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
+            LinkTypeMismatch::Signal => linked
+                .type_check_mismatch_signal()
+                .map_err(|_| Error::TypeMismatch)?,
+        }
+
+        // Reduce all dependencies
+        let reduced_dependencies = linked.reduce_dependencies(
+            merge_options
+                .keep_exports
+                .as_ref()
+                .map(KeepExports::functions),
+        );
+
+        Ok(reduced_dependencies)
     }
 }

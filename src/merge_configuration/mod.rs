@@ -2,7 +2,6 @@ use crate::merge_options::MergeOptions;
 use crate::named_module::NamedBufferModule;
 use crate::named_module::NamedModule;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::ModuleName;
 
 /// The configuration of modules that will be merged
 ///
@@ -16,13 +15,6 @@ pub struct MergeConfiguration<'a, Module> {
     /// The order is relevant.
     pub modules: &'a [&'a NamedModule<'a, Module>],
     pub options: MergeOptions,
-}
-
-impl<T> MergeConfiguration<'_, T> {
-    #[must_use]
-    pub(crate) fn owned_names(&self) -> Vec<ModuleName> {
-        self.modules.iter().map(|m| m.name.into()).collect()
-    }
 }
 
 impl<'a> MergeConfiguration<'a, &'a [u8]> {

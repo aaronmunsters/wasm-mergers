@@ -1,4 +1,5 @@
 pub mod error;
+pub mod kinds;
 pub mod merge_options;
 
 mod merge_builder;
@@ -31,14 +32,14 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
             self.try_parse().map_err(Error::Parse)?;
 
         // First pass: consider each parsed module
-        let mut resolver: Resolver = Resolver::default();
+        let mut resolver: Resolver = Resolver::new();
         for parsed_module in &parsed_modules {
             resolver.consider(parsed_module)?;
         }
 
         // Next, with the given modules, resolve imports & exports
-        let resolution_schema = resolver.resolve(&self.owned_names(), &self.options)?;
-        let mut merged_builder = Merger::new(resolution_schema, self.options.clone());
+        let reduced_dependencies = resolver.resolve(&self.options)?;
+        let mut merged_builder = Merger::new(reduced_dependencies, self.options.clone());
 
         // Next follows the second pass in which content is copied over
         for parsed_module in parsed_modules {

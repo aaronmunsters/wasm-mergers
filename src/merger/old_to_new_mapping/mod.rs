@@ -26,7 +26,7 @@ pub(crate) type NewIdFunction = Identifier<New, FunctionId>;
 pub(crate) type OldIdLocal = Identifier<Old, LocalId>;
 pub(crate) type NewIdLocal = Identifier<New, LocalId>;
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone)]
 pub struct Mapping {
     pub tables: HashMap<(ModuleName, OldIdTable), NewIdTable>,
     pub globals: HashMap<(ModuleName, OldIdGlobal), NewIdGlobal>,
