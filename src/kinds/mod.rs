@@ -1,5 +1,5 @@
 use std::hash::Hash;
-use walrus::{Module, TypeId, ValType};
+use walrus::{LocalId, Module, TypeId, ValType};
 
 pub use crate::resolver::Function;
 
@@ -8,6 +8,8 @@ pub(crate) struct FuncType {
     params: Box<[ValType]>,
     results: Box<[ValType]>,
 }
+
+pub(crate) type Locals = Box<[(LocalId, ValType)]>;
 
 impl FuncType {
     /// Given an arena where the types belong;

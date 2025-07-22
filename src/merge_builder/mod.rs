@@ -1,12 +1,11 @@
 use std::collections::HashSet;
 
-use walrus::LocalId;
 use walrus::Module;
-use walrus::ValType;
 
 use crate::MergeOptions;
 use crate::error::Error;
 use crate::kinds::FuncType;
+use crate::kinds::Locals;
 use crate::merge_options::ClashingExports;
 use crate::merge_options::KeepExports;
 use crate::merge_options::LinkTypeMismatch;
@@ -17,8 +16,6 @@ use crate::named_module::NamedParsedModule;
 use crate::resolver::dependency_reduction::ReducedDependencies;
 use crate::resolver::{Export, Function, Import, Local, Resolver as GraphResolver};
 
-// TODO: dedupe this type def
-type Locals = Box<[(LocalId, ValType)]>;
 #[derive(Debug)]
 pub(crate) struct Resolver {
     graph: GraphResolver<Function, FuncType, OldIdFunction, Locals>,

@@ -2,11 +2,11 @@ use core::convert::From;
 
 use walrus::{
     ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
-    FunctionKind, GlobalKind, IdsToIndices, ImportKind, LocalId, Module, Table, ValType,
+    FunctionKind, GlobalKind, IdsToIndices, ImportKind, Module, Table,
 };
 
 use crate::error::{Error, ExportKind};
-use crate::kinds::FuncType;
+use crate::kinds::{FuncType, Locals};
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
@@ -31,8 +31,6 @@ pub(crate) struct Merger {
     reduced_dependencies: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
 }
 
-// TODO: dedupe this typedef
-type Locals = Box<[(LocalId, ValType)]>;
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
 
 trait AsMappingRef {
