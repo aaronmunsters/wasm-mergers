@@ -6,10 +6,10 @@ use walrus::{
 };
 
 use crate::error::{Error, ExportKind};
+use crate::kinds::FuncType;
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::FuncType;
 use crate::resolver::graph_resolution::dependency_reduction::ReducedDependencies;
 use crate::resolver::graph_resolution::{Export, Function, IdentifierModule, Import, Local, Node};
 

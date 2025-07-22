@@ -14,7 +14,7 @@ use walrus::ir::{
     V128Bitselect, Visitor,
 };
 
-use crate::resolver::FuncType;
+use crate::kinds::FuncType;
 use crate::resolver::graph_resolution::IdentifierModule;
 
 use super::old_to_new_mapping::Mapping;

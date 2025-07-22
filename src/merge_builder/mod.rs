@@ -6,6 +6,7 @@ use walrus::ValType;
 
 use crate::MergeOptions;
 use crate::error::Error;
+use crate::kinds::FuncType;
 use crate::merge_options::ClashingExports;
 use crate::merge_options::KeepExports;
 use crate::merge_options::LinkTypeMismatch;
@@ -13,7 +14,6 @@ use crate::merger::old_to_new_mapping::OldIdFunction;
 use crate::merger::provenance_identifier::Identifier;
 use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::FuncType;
 use crate::resolver::graph_resolution::Export;
 use crate::resolver::graph_resolution::Function;
 use crate::resolver::graph_resolution::Import;
