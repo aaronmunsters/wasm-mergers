@@ -215,7 +215,6 @@ where
             .insert(export_identifier, GraphIndexExport(node_index));
 
         // For a single identifier the export must be unique
-        #[cfg(debug_assertions)]
         debug_assert!(unique_export.is_none());
     }
 
@@ -225,7 +224,6 @@ where
             .insert(index, GraphIndexImportOrLocal(node_index));
 
         // The newly added item index must be unique
-        #[cfg(debug_assertions)]
         debug_assert!(unique_import_or_local.is_none());
     }
 }
@@ -388,7 +386,6 @@ where
             self.graph
                 .try_add_edge(from, to, edge.clone())
                 .map_err(|cycle_err| {
-                    #[cfg(debug_assertions)]
                     debug_assert!(matches!(cycle_err, AcyclicEdgeError::Cycle(_)));
                     error::Cycles
                 })?;
