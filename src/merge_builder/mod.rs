@@ -7,7 +7,12 @@ use walrus::ValType;
 use crate::MergeOptions;
 use crate::error::Error;
 use crate::kinds::FuncType;
+use crate::kinds::Function;
+use crate::kinds::Global;
+use crate::kinds::IdentifierModule;
 use crate::kinds::Locals;
+use crate::kinds::Memory;
+use crate::kinds::Table;
 use crate::merge_options::ClashingExports;
 use crate::merge_options::KeepExports;
 use crate::merge_options::LinkTypeMismatch;
@@ -18,12 +23,8 @@ use crate::merger::old_to_new_mapping::OldIdTable;
 use crate::merger::provenance_identifier::Identifier;
 use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::Global;
-use crate::resolver::IdentifierModule;
-use crate::resolver::Memory;
-use crate::resolver::Table;
 use crate::resolver::dependency_reduction::ReducedDependencies;
-use crate::resolver::{Export, Function, Import, Local, Resolver as GraphResolver};
+use crate::resolver::{Export, Import, Local, Resolver as GraphResolver};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Resolver {

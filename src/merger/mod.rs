@@ -6,12 +6,12 @@ use walrus::{
 };
 
 use crate::error::{Error, ExportKind};
-use crate::kinds::{FuncType, Locals};
+use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
 use crate::merge_builder::AllReducedDependencies;
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::{Export, Function, IdentifierModule, Import, Local, Node};
+use crate::resolver::{Export, Import, Local, Node};
 
 pub(crate) mod old_to_new_mapping;
 use old_to_new_mapping::Mapping;

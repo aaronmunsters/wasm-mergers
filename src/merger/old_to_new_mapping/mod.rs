@@ -2,10 +2,8 @@ use std::collections::HashMap;
 
 use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId};
 
-use crate::{
-    merger::provenance_identifier::{Identifier, New, Old},
-    resolver::IdentifierModule,
-};
+use crate::kinds::IdentifierModule;
+use crate::merger::provenance_identifier::{Identifier, New, Old};
 
 pub(crate) type OldIdTable = Identifier<Old, TableId>;
 pub(crate) type NewIdTable = Identifier<New, TableId>;

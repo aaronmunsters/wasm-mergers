@@ -1,7 +1,7 @@
-use std::hash::Hash;
-use walrus::{LocalId, Module, TypeId, ValType};
+use std::{hash::Hash, marker::PhantomData};
 
-pub use crate::resolver::Function;
+use derive_more::{Display, From, Into};
+use walrus::{LocalId, Module, TypeId, ValType};
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct FuncType {
@@ -35,5 +35,55 @@ impl FuncType {
 
     pub(crate) fn add_to_module(&self, module: &mut Module) -> TypeId {
         module.types.add(&self.params, &self.results)
+    }
+}
+
+// TODO: consider using these as PhantomData?
+// Supported kinds
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Function;
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Table;
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Memory;
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Global;
+
+// Identifiers
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
+pub struct IdentifierItem<Kind> {
+    identifier: String,
+    kind: PhantomData<Kind>,
+}
+
+impl<Kind> From<String> for IdentifierItem<Kind> {
+    fn from(value: String) -> Self {
+        Self {
+            identifier: value,
+            kind: PhantomData,
+        }
+    }
+}
+
+impl<Kind> From<IdentifierItem<Kind>> for String {
+    fn from(val: IdentifierItem<Kind>) -> Self {
+        val.identifier
+    }
+}
+
+impl<Kind> IdentifierItem<Kind> {
+    pub(crate) fn identifier(&self) -> &str {
+        &self.identifier
+    }
+}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
+#[from(String)]
+pub struct IdentifierModule(String);
+
+impl IdentifierModule {
+    pub(crate) fn identifier(&self) -> &str {
+        let Self(identifier) = self;
+        identifier
     }
 }

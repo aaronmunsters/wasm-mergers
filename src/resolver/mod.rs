@@ -1,65 +1,15 @@
+use std::collections::HashMap as Map;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::{collections::HashMap as Map, marker::PhantomData};
 
-use derive_more::{Display, From, Into};
-use petgraph::{
-    acyclic::{Acyclic, AcyclicEdgeError},
-    data::Build,
-    graph::{Graph, NodeIndex},
-    visit::{EdgeRef, IntoNodeReferences},
-};
+use petgraph::acyclic::{Acyclic, AcyclicEdgeError};
+use petgraph::data::Build;
+use petgraph::graph::{Graph, NodeIndex};
+use petgraph::visit::{EdgeRef, IntoNodeReferences};
+
+use crate::kinds::{IdentifierItem, IdentifierModule};
 
 pub(crate) mod dependency_reduction;
-
-// TODO: consider using these as PhantomData?
-// Supported kinds
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub struct Function;
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub struct Table;
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub struct Memory;
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
-pub struct Global;
-
-// Identifiers
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
-pub struct IdentifierItem<Kind> {
-    identifier: String,
-    kind: PhantomData<Kind>,
-}
-
-impl<Kind> From<String> for IdentifierItem<Kind> {
-    fn from(value: String) -> Self {
-        Self {
-            identifier: value,
-            kind: PhantomData,
-        }
-    }
-}
-
-impl<Kind> From<IdentifierItem<Kind>> for String {
-    fn from(val: IdentifierItem<Kind>) -> Self {
-        val.identifier
-    }
-}
-
-impl<Kind> IdentifierItem<Kind> {
-    pub(crate) fn identifier(&self) -> &str {
-        &self.identifier
-    }
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
-pub struct IdentifierModule(String);
-
-impl IdentifierModule {
-    pub(crate) fn identifier(&self) -> &str {
-        let Self(identifier) = self;
-        identifier
-    }
-}
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct Import<Kind, Type, Index> {

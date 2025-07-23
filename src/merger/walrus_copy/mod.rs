@@ -14,27 +14,23 @@ use walrus::ir::{
     V128Bitselect, Visitor,
 };
 
-use crate::kinds::FuncType;
-use crate::resolver::IdentifierModule;
-
-use super::old_to_new_mapping::Mapping;
-use super::old_to_new_mapping::NewIdData;
-use super::old_to_new_mapping::NewIdElement;
-use super::old_to_new_mapping::NewIdFunction;
-use super::old_to_new_mapping::NewIdGlobal;
-use super::old_to_new_mapping::NewIdLocal;
-use super::old_to_new_mapping::NewIdMemory;
-use super::old_to_new_mapping::NewIdTable;
-use super::old_to_new_mapping::OldIdData;
-use super::old_to_new_mapping::OldIdElement;
-use super::old_to_new_mapping::OldIdFunction;
-use super::old_to_new_mapping::OldIdGlobal;
-use super::old_to_new_mapping::OldIdLocal;
-use super::old_to_new_mapping::OldIdMemory;
-use super::old_to_new_mapping::OldIdTable;
-use super::provenance_identifier::Identifier;
-use super::provenance_identifier::New;
-use super::provenance_identifier::Old;
+use crate::kinds::{FuncType, IdentifierModule};
+use crate::merger::old_to_new_mapping::Mapping;
+use crate::merger::old_to_new_mapping::NewIdData;
+use crate::merger::old_to_new_mapping::NewIdElement;
+use crate::merger::old_to_new_mapping::NewIdFunction;
+use crate::merger::old_to_new_mapping::NewIdGlobal;
+use crate::merger::old_to_new_mapping::NewIdLocal;
+use crate::merger::old_to_new_mapping::NewIdMemory;
+use crate::merger::old_to_new_mapping::NewIdTable;
+use crate::merger::old_to_new_mapping::OldIdData;
+use crate::merger::old_to_new_mapping::OldIdElement;
+use crate::merger::old_to_new_mapping::OldIdFunction;
+use crate::merger::old_to_new_mapping::OldIdGlobal;
+use crate::merger::old_to_new_mapping::OldIdLocal;
+use crate::merger::old_to_new_mapping::OldIdMemory;
+use crate::merger::old_to_new_mapping::OldIdTable;
+use crate::merger::provenance_identifier::{Identifier, New, Old};
 
 struct SequenceStack {
     old: Vec<InstrSeqId>,

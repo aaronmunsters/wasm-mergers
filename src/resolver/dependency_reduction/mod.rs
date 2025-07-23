@@ -1,14 +1,13 @@
+use std::collections::{HashMap as Map, HashSet as Set};
+use std::fmt::Debug;
 use std::hash::Hash;
-use std::{collections::HashSet as Set, fmt::Debug};
 
 use petgraph::{Direction, prelude::*, visit::IntoNodeReferences};
 
+use crate::kinds::IdentifierItem;
 use crate::merge_options::ExportIdentifier;
-use crate::resolver::IdentifierItem;
 
 use super::{Export, Import, Linked, Node};
-
-use std::collections::HashMap as Map;
 
 type ReductionMap<Kind, Type, Index, LocalData> =
     Map<Node<Kind, Type, Index, LocalData>, Node<Kind, Type, Index, LocalData>>;
@@ -153,7 +152,7 @@ where
 #[cfg(test)]
 mod dependency_tests {
     use super::*;
-    use crate::resolver::*;
+    use crate::{kinds::IdentifierModule, resolver::*};
 
     type TestKind = ();
     type TestType = ();
@@ -171,8 +170,8 @@ mod dependency_tests {
         index: i32,
     ) -> Import<TestKind, TestType, TestIndexType> {
         Import {
-            exporting_module: IdentifierModule(exporting_module.into()),
-            importing_module: IdentifierModule(importing_module.into()),
+            exporting_module: exporting_module.to_string().into(),
+            importing_module: importing_module.to_string().into(),
             exporting_identifier: export_name.to_string().into(),
             imported_index: index,
             kind: TEST_KIND,
@@ -185,7 +184,7 @@ mod dependency_tests {
         index: i32,
     ) -> Local<TestKind, TestType, TestIndexType, TestLocalData> {
         Local {
-            module: IdentifierModule(module.into()),
+            module: module.to_string().into(),
             index,
             kind: TEST_KIND,
             ty: TEST_TYPE,
@@ -199,7 +198,7 @@ mod dependency_tests {
         index: i32,
     ) -> Export<TestKind, TestType, TestIndexType> {
         Export {
-            module: IdentifierModule(module.into()),
+            module: module.to_string().into(),
             identifier: export_name.to_string().into(),
             index,
             kind: TEST_KIND,
@@ -320,7 +319,10 @@ mod dependency_tests {
         assert_eq!(remaining_exports.len(), 1, "Export should remain local");
 
         let unresolved_import = remaining_imports.iter().next().unwrap();
-        assert_eq!(unresolved_import.exporting_identifier.identifier, "missing");
+        assert_eq!(
+            unresolved_import.exporting_identifier.identifier(),
+            "missing"
+        );
 
         let _ = reduction_map;
     }
