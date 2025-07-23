@@ -531,12 +531,32 @@ impl Merger {
                 //        If the function cannot be resolved, & it name-clashes
                 //        with another function ... then?
                 ExportItem::Function(before_id) => {
-                    let _ = before_id;
-                    // TODO: self.reduced_dependencies.remaining_imports()
-                    //       contains the import ->
-                    //          if yes -> assert it is present
-                    //          if no -> assert it is in the mapping
-                    // if duplicate stuff stuff cf. history
+                    let ty = funcs.get(*before_id).ty();
+                    let ty = FuncType::from_types(ty, types);
+                    let lookup_export = Export {
+                        module: considering_module_name.identifier().to_string().into(),
+                        identifier: export.name.to_string().into(),
+                        index: (*before_id).into(),
+                        kind: Function,
+                        ty,
+                    };
+                    if self
+                        .reduced_dependencies
+                        .remaining_exports()
+                        .contains(&lookup_export)
+                    {
+                        #[cfg(debug_assertions)]
+                        debug_assert!(self.merged.exports.iter().any(|potential_export| {
+                            matches!(potential_export.item, ExportItem::Function(_))
+                                && potential_export.name == export.name
+                        }));
+                    } else {
+                        #[cfg(debug_assertions)]
+                        debug_assert!(self.mapping.funcs.contains_key(&(
+                            considering_module_name.to_string().into(),
+                            (*before_id).into()
+                        )));
+                    };
                 }
                 ExportItem::Table(before_index) => {
                     let duplicate_table_export =
