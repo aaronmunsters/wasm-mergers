@@ -25,12 +25,20 @@ use crate::resolver::Table;
 use crate::resolver::dependency_reduction::ReducedDependencies;
 use crate::resolver::{Export, Function, Import, Local, Resolver as GraphResolver};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Resolver {
     resolver_function: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
     resolver_table: GraphResolver<Table, RefType, OldIdTable, ()>,
     resolver_memory: GraphResolver<Memory, (), OldIdMemory, ()>,
     resolver_global: GraphResolver<Global, ValType, OldIdGlobal, ()>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AllReducedDependencies {
+    pub functions: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
+    pub tables: ReducedDependencies<Table, RefType, OldIdTable, ()>,
+    pub memories: ReducedDependencies<Memory, (), OldIdMemory, ()>,
+    pub globals: ReducedDependencies<Global, ValType, OldIdGlobal, ()>,
 }
 
 impl Resolver {
@@ -108,8 +116,11 @@ impl Resolver {
 
         let considering_module: IdentifierModule = considering_module.to_string().into();
         let mut covered_function_imports = Set::new();
+        let mut covered_table_imports = Set::new();
+        let mut covered_memory_imports = Set::new();
+        let mut covered_global_imports = Set::new();
 
-        // FIXME: move this to individual elements?
+        // Process all imports
         for import in considering_imports.iter() {
             match &import.kind {
                 walrus::ImportKind::Function(old_id_function) => {
@@ -122,6 +133,7 @@ impl Resolver {
                     self.resolver_function.add_import(import);
                 }
                 walrus::ImportKind::Table(old_id_table) => {
+                    covered_table_imports.insert((old_id_table, import.id()));
                     let table = considering_tables.get(*old_id_table);
                     let ty = table.element_ty;
                     let old_id_table: OldIdTable = (*old_id_table).into();
@@ -129,11 +141,13 @@ impl Resolver {
                     self.resolver_table.add_import(import);
                 }
                 walrus::ImportKind::Memory(old_id_memory) => {
+                    covered_memory_imports.insert((old_id_memory, import.id()));
                     let old_id_memory: OldIdMemory = (*old_id_memory).into();
                     let import = Self::import_from(import, &considering_module, old_id_memory, ());
                     self.resolver_memory.add_import(import);
                 }
                 walrus::ImportKind::Global(old_id_global) => {
+                    covered_global_imports.insert((old_id_global, import.id()));
                     let global = considering_globals.get(*old_id_global);
                     let ty = global.ty;
                     let old_id_global: OldIdGlobal = (*old_id_global).into();
@@ -143,6 +157,7 @@ impl Resolver {
             }
         }
 
+        // Process functions
         for function in considering_funcs.iter() {
             match &function.kind {
                 walrus::FunctionKind::Local(local_function) => {
@@ -156,9 +171,13 @@ impl Resolver {
                         .collect::<Vec<_>>()
                         .into_boxed_slice();
 
-                    let old_id_local: Identifier<Old, _> = function.id().into();
-                    let ty = FuncType::from_types(local_function.ty(), considering_types);
-                    let local = Self::local_from(&considering_module, old_id_local, ty, locals);
+                    let local = Local {
+                        module: considering_module.clone(),
+                        index: function.id().into(),
+                        kind: Function,
+                        ty: FuncType::from_types(local_function.ty(), considering_types),
+                        data: locals.clone(),
+                    };
                     self.resolver_function.add_local(local);
                 }
                 walrus::FunctionKind::Import(i) => {
@@ -172,18 +191,53 @@ impl Resolver {
             }
         }
 
+        // Process globals
         for global in considering_globals.iter() {
-            let _ = global; // TODO: should this be further processed?
+            match &global.kind {
+                walrus::GlobalKind::Local(local_global) => {
+                    let _ = local_global; // Particular expression is not of interest
+                    let local =
+                        Self::local_from(&considering_module, global.id().into(), global.ty, ());
+                    self.resolver_global.add_local(local);
+                }
+                walrus::GlobalKind::Import(i) => {
+                    debug_assert!(covered_global_imports.contains(&(&global.id(), *i)));
+                }
+            }
         }
 
+        // Process memories
         for memory in considering_memories.iter() {
-            let _ = memory; // TODO: should this be further processed?
+            match &memory.import {
+                Some(i) => {
+                    debug_assert!(covered_memory_imports.contains(&(&memory.id(), *i)));
+                }
+                None => {
+                    let local = Self::local_from(&considering_module, memory.id().into(), (), ());
+                    self.resolver_memory.add_local(local);
+                }
+            }
         }
 
+        // Process tables
         for table in considering_tables.iter() {
-            let _ = table; // TODO: should this be further processed?
+            match &table.import {
+                Some(i) => {
+                    debug_assert!(covered_table_imports.contains(&(&table.id(), *i)));
+                }
+                None => {
+                    let local = Self::local_from(
+                        &considering_module,
+                        table.id().into(),
+                        table.element_ty,
+                        (),
+                    );
+                    self.resolver_table.add_local(local);
+                }
+            }
         }
 
+        // Process exports
         for export in considering_exports.iter() {
             match &export.item {
                 walrus::ExportItem::Function(old_id_function) => {
@@ -222,12 +276,33 @@ impl Resolver {
     pub(crate) fn resolve(
         self,
         merge_options: &MergeOptions,
+    ) -> Result<AllReducedDependencies, Error> {
+        let Self {
+            resolver_function,
+            resolver_table,
+            resolver_memory,
+            resolver_global,
+        } = self;
+
+        let resolved_functions = Self::resolve_functions(resolver_function, merge_options)?;
+        let resolved_tables = Self::resolve_tables(resolver_table, merge_options)?;
+        let resolved_memories = Self::resolve_memories(resolver_memory, merge_options)?;
+        let resolved_globals = Self::resolve_globals(resolver_global, merge_options)?;
+
+        Ok(AllReducedDependencies {
+            functions: resolved_functions,
+            tables: resolved_tables,
+            memories: resolved_memories,
+            globals: resolved_globals,
+        })
+    }
+
+    fn resolve_functions(
+        functions: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
+        merge_options: &MergeOptions,
     ) -> Result<ReducedDependencies<Function, FuncType, OldIdFunction, Locals>, Error> {
         // Link all up
-        let mut linked = self
-            .resolver_function
-            .link_nodes()
-            .map_err(|_| Error::ImportCycle)?;
+        let mut linked = functions.link_nodes().map_err(|_| Error::ImportCycle)?;
 
         // Assert exports are not clashing
         match &merge_options.clashing_exports {
@@ -255,7 +330,98 @@ impl Resolver {
                 .map(KeepExports::functions),
         );
 
-        // TODO: Resolve tables, memories, globals
+        Ok(reduced_dependencies)
+    }
+
+    fn resolve_tables(
+        tables: GraphResolver<Table, RefType, OldIdTable, ()>,
+        merge_options: &MergeOptions,
+    ) -> Result<ReducedDependencies<Table, RefType, OldIdTable, ()>, Error> {
+        let mut linked = tables.link_nodes().map_err(|_| Error::ImportCycle)?;
+
+        match &merge_options.clashing_exports {
+            ClashingExports::Rename(rename_strategy) => {
+                linked.clashing_rename(rename_strategy.tables);
+            }
+            ClashingExports::Signal => linked
+                .clashing_signal()
+                .map_err(|_| Error::ExportNameClash)?,
+        }
+
+        match &merge_options.link_type_mismatch {
+            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
+            LinkTypeMismatch::Signal => linked
+                .type_check_mismatch_signal()
+                .map_err(|_| Error::TypeMismatch)?,
+        }
+
+        let reduced_dependencies = linked
+            .reduce_dependencies(merge_options.keep_exports.as_ref().map(KeepExports::tables));
+
+        Ok(reduced_dependencies)
+    }
+
+    fn resolve_memories(
+        memories: GraphResolver<Memory, (), OldIdMemory, ()>,
+        merge_options: &MergeOptions,
+    ) -> Result<ReducedDependencies<Memory, (), OldIdMemory, ()>, Error> {
+        let mut linked = memories.link_nodes().map_err(|_| Error::ImportCycle)?;
+
+        match &merge_options.clashing_exports {
+            ClashingExports::Rename(rename_strategy) => {
+                linked.clashing_rename(rename_strategy.memories);
+            }
+            ClashingExports::Signal => linked
+                .clashing_signal()
+                .map_err(|_| Error::ExportNameClash)?,
+        }
+
+        // Memory types are (), so type checking is trivial
+        match &merge_options.link_type_mismatch {
+            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
+            LinkTypeMismatch::Signal => linked
+                .type_check_mismatch_signal()
+                .map_err(|_| Error::TypeMismatch)?,
+        }
+
+        let reduced_dependencies = linked.reduce_dependencies(
+            merge_options
+                .keep_exports
+                .as_ref()
+                .map(KeepExports::memories),
+        );
+
+        Ok(reduced_dependencies)
+    }
+
+    fn resolve_globals(
+        globals: GraphResolver<Global, ValType, OldIdGlobal, ()>,
+        merge_options: &MergeOptions,
+    ) -> Result<ReducedDependencies<Global, ValType, OldIdGlobal, ()>, Error> {
+        let mut linked = globals.link_nodes().map_err(|_| Error::ImportCycle)?;
+
+        match &merge_options.clashing_exports {
+            ClashingExports::Rename(rename_strategy) => {
+                linked.clashing_rename(rename_strategy.globals);
+            }
+            ClashingExports::Signal => linked
+                .clashing_signal()
+                .map_err(|_| Error::ExportNameClash)?,
+        }
+
+        match &merge_options.link_type_mismatch {
+            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
+            LinkTypeMismatch::Signal => linked
+                .type_check_mismatch_signal()
+                .map_err(|_| Error::TypeMismatch)?,
+        }
+
+        let reduced_dependencies = linked.reduce_dependencies(
+            merge_options
+                .keep_exports
+                .as_ref()
+                .map(KeepExports::globals),
+        );
 
         Ok(reduced_dependencies)
     }

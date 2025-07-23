@@ -7,10 +7,10 @@ use walrus::{
 
 use crate::error::{Error, ExportKind};
 use crate::kinds::{FuncType, Locals};
+use crate::merge_builder::AllReducedDependencies;
 use crate::merge_options::{ClashingExports, MergeOptions};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::dependency_reduction::ReducedDependencies;
 use crate::resolver::{Export, Function, IdentifierModule, Import, Local, Node};
 
 pub(crate) mod old_to_new_mapping;
@@ -28,7 +28,7 @@ pub(crate) struct Merger {
     mapping: Mapping,
     names: Vec<(String, String)>,
     starts: Vec<FunctionId>,
-    reduced_dependencies: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
+    reduced_dependencies: AllReducedDependencies,
 }
 
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
@@ -117,16 +117,17 @@ impl Merger {
     }
 
     #[must_use]
-    pub(crate) fn new(
-        reduced_dependencies: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
-        options: MergeOptions,
-    ) -> Self {
+    pub(crate) fn new(reduced_dependencies: AllReducedDependencies, options: MergeOptions) -> Self {
         // Create new empty Wasm module
         let mut new_merged = Module::default();
         let mut new_mapping = Mapping::default();
 
+        let _ = reduced_dependencies.globals; // TODO: cover in this pass
+        let _ = reduced_dependencies.memories; // TODO: cover in this pass
+        let _ = reduced_dependencies.tables; // TODO: cover in this pass
+
         // 1. Include all remaining imports:
-        for old_import in reduced_dependencies.remaining_imports() {
+        for old_import in reduced_dependencies.functions.remaining_imports() {
             let new_import = Self::add_new_import(&mut new_merged, old_import);
             new_mapping
                 .funcs
@@ -135,6 +136,7 @@ impl Merger {
 
         // 2. Include all locals:
         reduced_dependencies
+            .functions
             .reduction_map()
             .keys()
             .filter_map(|node| node.as_local())
@@ -145,7 +147,7 @@ impl Merger {
                     .insert(old_local.to_mapping_ref(), new_local);
             });
 
-        for (node, reduced) in reduced_dependencies.reduction_map() {
+        for (node, reduced) in reduced_dependencies.functions.reduction_map() {
             // Find location of reduced node:
             let reduced = new_mapping.funcs.get(&reduced.to_mapping_ref()).copied();
 
@@ -159,7 +161,7 @@ impl Merger {
             }
         }
 
-        for old_export in reduced_dependencies.remaining_exports() {
+        for old_export in reduced_dependencies.functions.remaining_exports() {
             let reduced = new_mapping.funcs.get(&old_export.to_mapping_ref());
 
             // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
@@ -427,6 +429,7 @@ impl Merger {
 
                     if self
                         .reduced_dependencies
+                        .functions
                         .remaining_imports()
                         .contains(&import)
                     {
@@ -541,6 +544,7 @@ impl Merger {
                     };
                     if self
                         .reduced_dependencies
+                        .functions
                         .remaining_exports()
                         .contains(&lookup_export)
                     {
@@ -612,7 +616,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let renamed =
-                                    (renamer.memory)(&considering_module_name, memory_name);
+                                    (renamer.memories)(&considering_module_name, memory_name);
                                 let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories

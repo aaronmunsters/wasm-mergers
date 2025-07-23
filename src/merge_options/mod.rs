@@ -18,13 +18,13 @@ pub struct ExportIdentifier<KindName> {
 pub type IdentifierFunction = IdentifierItem<Function>;
 pub type IdentifierTable = IdentifierItem<Table>;
 pub type IdentifierMemory = IdentifierItem<Memory>;
-pub type IdentifierGlobal = IdentifierItem<Function>;
+pub type IdentifierGlobal = IdentifierItem<Global>;
 
 #[derive(Debug, Hash, Clone)]
 pub struct RenameStrategy {
     pub functions: fn(&IdentifierModule, IdentifierFunction) -> IdentifierFunction,
     pub tables: fn(&IdentifierModule, IdentifierTable) -> IdentifierTable,
-    pub memory: fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory,
+    pub memories: fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory,
     pub globals: fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal,
 }
 
@@ -46,7 +46,7 @@ pub enum LinkTypeMismatch {
 pub struct KeepExports {
     pub functions: Set<ExportIdentifier<IdentifierItem<Function>>>,
     pub tables: Set<ExportIdentifier<IdentifierItem<Table>>>,
-    pub memory: Set<ExportIdentifier<IdentifierItem<Memory>>>,
+    pub memories: Set<ExportIdentifier<IdentifierItem<Memory>>>,
     pub globals: Set<ExportIdentifier<IdentifierItem<Global>>>,
 }
 
@@ -62,8 +62,8 @@ impl KeepExports {
     }
 
     #[must_use]
-    pub fn memory(&self) -> &Set<ExportIdentifier<IdentifierItem<Memory>>> {
-        &self.memory
+    pub fn memories(&self) -> &Set<ExportIdentifier<IdentifierItem<Memory>>> {
+        &self.memories
     }
 
     #[must_use]
@@ -92,7 +92,7 @@ impl KeepExports {
             module,
             name: name.into(),
         };
-        self.memory.insert(identifier);
+        self.memories.insert(identifier);
     }
 
     pub fn keep_globals(&mut self, module: IdentifierModule, name: String) {
@@ -118,7 +118,7 @@ pub struct MergeOptions {
 pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
     functions: default_rename::<IdentifierFunction>,
     tables: default_rename::<IdentifierTable>,
-    memory: default_rename::<IdentifierMemory>,
+    memories: default_rename::<IdentifierMemory>,
     globals: default_rename::<IdentifierGlobal>,
 };
 
