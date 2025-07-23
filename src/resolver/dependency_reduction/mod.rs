@@ -152,7 +152,8 @@ where
 #[cfg(test)]
 mod dependency_tests {
     use super::*;
-    use crate::{kinds::IdentifierModule, resolver::*};
+    use crate::resolver::{Export, Import, Local, Resolver};
+    use std::marker::PhantomData;
 
     type TestKind = ();
     type TestType = ();
@@ -160,7 +161,6 @@ mod dependency_tests {
     type TestIndexType = i32;
     type TestResolver = Resolver<TestKind, TestType, TestIndexType, TestLocalData>;
     const TEST_TYPE: TestType = ();
-    const TEST_KIND: TestKind = ();
     const TEST_LOCAL_DATA: TestLocalData = ();
 
     fn create_import(
@@ -174,7 +174,7 @@ mod dependency_tests {
             importing_module: importing_module.to_string().into(),
             exporting_identifier: export_name.to_string().into(),
             imported_index: index,
-            kind: TEST_KIND,
+            kind: PhantomData,
             ty: TEST_TYPE,
         }
     }
@@ -186,7 +186,7 @@ mod dependency_tests {
         Local {
             module: module.to_string().into(),
             index,
-            kind: TEST_KIND,
+            kind: PhantomData,
             ty: TEST_TYPE,
             data: TEST_LOCAL_DATA,
         }
@@ -201,7 +201,7 @@ mod dependency_tests {
             module: module.to_string().into(),
             identifier: export_name.to_string().into(),
             index,
-            kind: TEST_KIND,
+            kind: PhantomData,
             ty: TEST_TYPE,
         }
     }

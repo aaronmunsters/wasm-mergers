@@ -1,6 +1,7 @@
 use std::collections::HashMap as Map;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::marker::PhantomData;
 
 use petgraph::acyclic::{Acyclic, AcyclicEdgeError};
 use petgraph::data::Build;
@@ -17,7 +18,7 @@ pub(crate) struct Import<Kind, Type, Index> {
     pub(crate) importing_module: IdentifierModule,
     pub(crate) exporting_identifier: IdentifierItem<Kind>,
     pub(crate) imported_index: Index,
-    pub(crate) kind: Kind,
+    pub(crate) kind: PhantomData<Kind>,
     pub(crate) ty: Type,
 }
 
@@ -46,7 +47,7 @@ impl<Kind, Type, Index> Import<Kind, Type, Index> {
 pub(crate) struct Local<Kind, Type, Index, Data> {
     pub(crate) module: IdentifierModule,
     pub(crate) index: Index,
-    pub(crate) kind: Kind,
+    pub(crate) kind: PhantomData<Kind>,
     pub(crate) ty: Type,
     pub(crate) data: Data,
 }
@@ -74,7 +75,7 @@ pub(crate) struct Export<Kind, Type, Index> {
     pub(crate) module: IdentifierModule,
     pub(crate) identifier: IdentifierItem<Kind>,
     pub(crate) index: Index,
-    pub(crate) kind: Kind,
+    pub(crate) kind: PhantomData<Kind>,
     pub(crate) ty: Type,
 }
 

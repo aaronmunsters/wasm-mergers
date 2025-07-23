@@ -1,4 +1,5 @@
 use core::convert::From;
+use std::marker::PhantomData;
 
 use walrus::{
     ConstExpr, DataKind, ElementItems, ElementKind, ExportItem, FunctionBuilder, FunctionId,
@@ -423,7 +424,7 @@ impl Merger {
                         importing_module: module.name.to_string().into(),
                         exporting_identifier: import.name.to_string().into(),
                         imported_index: Identifier::<Old, _>::from(*before_id),
-                        kind: Function,
+                        kind: PhantomData,
                         ty,
                     };
 
@@ -539,7 +540,7 @@ impl Merger {
                         module: considering_module_name.identifier().to_string().into(),
                         identifier: export.name.to_string().into(),
                         index: (*before_id).into(),
-                        kind: Function,
+                        kind: PhantomData,
                         ty,
                     };
                     if self

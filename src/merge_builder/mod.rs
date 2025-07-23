@@ -1,4 +1,5 @@
 use std::collections::HashSet as Set;
+use std::marker::PhantomData;
 
 use walrus::Module;
 use walrus::RefType;
@@ -52,7 +53,7 @@ impl Resolver {
         }
     }
 
-    fn import_from<Kind: Default, Type, Index>(
+    fn import_from<Kind, Type, Index>(
         import: &walrus::Import,
         module: &IdentifierModule,
         imported_index: Index,
@@ -63,12 +64,12 @@ impl Resolver {
             importing_module: module.clone(),
             exporting_identifier: (*import.name).to_string().into(),
             imported_index,
-            kind: Kind::default(),
+            kind: PhantomData,
             ty,
         }
     }
 
-    fn local_from<Kind: Default, Type, Index, LocalData>(
+    fn local_from<Kind, Type, Index, LocalData>(
         module: &IdentifierModule,
         index: Index,
         ty: Type,
@@ -77,13 +78,13 @@ impl Resolver {
         Local {
             module: module.clone(),
             index,
-            kind: Kind::default(),
+            kind: PhantomData,
             ty,
             data,
         }
     }
 
-    fn export_from<Kind: Default, Type, Index>(
+    fn export_from<Kind, Type, Index>(
         export: &walrus::Export,
         module: &IdentifierModule,
         exported_index: Index,
@@ -93,7 +94,7 @@ impl Resolver {
             module: module.clone(),
             identifier: export.name.to_string().into(),
             index: exported_index,
-            kind: Kind::default(),
+            kind: PhantomData,
             ty,
         }
     }
@@ -175,7 +176,7 @@ impl Resolver {
                     let local = Local {
                         module: considering_module.clone(),
                         index: function.id().into(),
-                        kind: Function,
+                        kind: PhantomData,
                         ty: FuncType::from_types(local_function.ty(), considering_types),
                         data: locals.clone(),
                     };

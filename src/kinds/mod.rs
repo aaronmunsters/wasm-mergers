@@ -38,7 +38,6 @@ impl FuncType {
     }
 }
 
-// TODO: consider using these as PhantomData?
 // Supported kinds
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Function;
