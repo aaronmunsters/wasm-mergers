@@ -651,10 +651,6 @@ fn composition_of_cross_deps() {
     assert_eq!(wasm_call!(store, e), rs_e());
 }
 
-// TODO: Define example from above but with a dead function
-// E.g. `c` that is unused (only referenced by `e` but not used),
-// So require it to be eliminated? (but ... this could be a second pass?)
-
 #[test]
 fn test_multi_memory() {
     let gen_wat = |prefix| {
