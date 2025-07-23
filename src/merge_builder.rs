@@ -29,10 +29,10 @@ use crate::resolver::{Export, Import, Local, Resolver as GraphResolver};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Resolver {
-    resolver_function: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
-    resolver_table: GraphResolver<Table, RefType, OldIdTable, ()>,
-    resolver_memory: GraphResolver<Memory, (), OldIdMemory, ()>,
-    resolver_global: GraphResolver<Global, ValType, OldIdGlobal, ()>,
+    function: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
+    table: GraphResolver<Table, RefType, OldIdTable, ()>,
+    memory: GraphResolver<Memory, (), OldIdMemory, ()>,
+    global: GraphResolver<Global, ValType, OldIdGlobal, ()>,
 }
 
 #[derive(Debug, Clone)]
@@ -46,10 +46,10 @@ pub(crate) struct AllReducedDependencies {
 impl Resolver {
     pub(crate) fn new() -> Self {
         Self {
-            resolver_function: GraphResolver::new(),
-            resolver_table: GraphResolver::new(),
-            resolver_global: GraphResolver::new(),
-            resolver_memory: GraphResolver::new(),
+            function: GraphResolver::new(),
+            table: GraphResolver::new(),
+            global: GraphResolver::new(),
+            memory: GraphResolver::new(),
         }
     }
 
@@ -116,7 +116,7 @@ impl Resolver {
             ..
         } = module;
 
-        let considering_module: IdentifierModule = considering_module.to_string().into();
+        let considering_module: IdentifierModule = (*considering_module).to_string().into();
         let mut covered_function_imports = Set::new();
         let mut covered_table_imports = Set::new();
         let mut covered_memory_imports = Set::new();
@@ -132,7 +132,7 @@ impl Resolver {
                     let old_id_function: OldIdFunction = (*old_id_function).into();
                     let import =
                         Self::import_from(import, &considering_module, old_id_function, ty);
-                    self.resolver_function.add_import(import);
+                    self.function.add_import(import);
                 }
                 walrus::ImportKind::Table(old_id_table) => {
                     covered_table_imports.insert((old_id_table, import.id()));
@@ -140,13 +140,13 @@ impl Resolver {
                     let ty = table.element_ty;
                     let old_id_table: OldIdTable = (*old_id_table).into();
                     let import = Self::import_from(import, &considering_module, old_id_table, ty);
-                    self.resolver_table.add_import(import);
+                    self.table.add_import(import);
                 }
                 walrus::ImportKind::Memory(old_id_memory) => {
                     covered_memory_imports.insert((old_id_memory, import.id()));
                     let old_id_memory: OldIdMemory = (*old_id_memory).into();
                     let import = Self::import_from(import, &considering_module, old_id_memory, ());
-                    self.resolver_memory.add_import(import);
+                    self.memory.add_import(import);
                 }
                 walrus::ImportKind::Global(old_id_global) => {
                     covered_global_imports.insert((old_id_global, import.id()));
@@ -154,7 +154,7 @@ impl Resolver {
                     let ty = global.ty;
                     let old_id_global: OldIdGlobal = (*old_id_global).into();
                     let import = Self::import_from(import, &considering_module, old_id_global, ty);
-                    self.resolver_global.add_import(import);
+                    self.global.add_import(import);
                 }
             }
         }
@@ -180,7 +180,7 @@ impl Resolver {
                         ty: FuncType::from_types(local_function.ty(), considering_types),
                         data: locals.clone(),
                     };
-                    self.resolver_function.add_local(local);
+                    self.function.add_local(local);
                 }
                 walrus::FunctionKind::Import(i) => {
                     debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)));
@@ -200,7 +200,7 @@ impl Resolver {
                     let _ = local_global; // Particular expression is not of interest
                     let local =
                         Self::local_from(&considering_module, global.id().into(), global.ty, ());
-                    self.resolver_global.add_local(local);
+                    self.global.add_local(local);
                 }
                 walrus::GlobalKind::Import(i) => {
                     debug_assert!(covered_global_imports.contains(&(&global.id(), *i)));
@@ -210,32 +210,22 @@ impl Resolver {
 
         // Process memories
         for memory in considering_memories.iter() {
-            match &memory.import {
-                Some(i) => {
-                    debug_assert!(covered_memory_imports.contains(&(&memory.id(), *i)));
-                }
-                None => {
-                    let local = Self::local_from(&considering_module, memory.id().into(), (), ());
-                    self.resolver_memory.add_local(local);
-                }
+            if let Some(i) = &memory.import {
+                debug_assert!(covered_memory_imports.contains(&(&memory.id(), *i)));
+            } else {
+                let local = Self::local_from(&considering_module, memory.id().into(), (), ());
+                self.memory.add_local(local);
             }
         }
 
         // Process tables
         for table in considering_tables.iter() {
-            match &table.import {
-                Some(i) => {
-                    debug_assert!(covered_table_imports.contains(&(&table.id(), *i)));
-                }
-                None => {
-                    let local = Self::local_from(
-                        &considering_module,
-                        table.id().into(),
-                        table.element_ty,
-                        (),
-                    );
-                    self.resolver_table.add_local(local);
-                }
+            if let Some(i) = &table.import {
+                debug_assert!(covered_table_imports.contains(&(&table.id(), *i)));
+            } else {
+                let local =
+                    Self::local_from(&considering_module, table.id().into(), table.element_ty, ());
+                self.table.add_local(local);
             }
         }
 
@@ -248,26 +238,26 @@ impl Resolver {
                     let ty = FuncType::from_types(func.ty(), considering_types);
                     let export =
                         Self::export_from(export, &considering_module, old_id_function, ty);
-                    self.resolver_function.add_export(export);
+                    self.function.add_export(export);
                 }
                 walrus::ExportItem::Table(old_id_table) => {
                     let table = considering_tables.get(*old_id_table);
                     let old_id_table: Identifier<Old, _> = (*old_id_table).into();
                     let ty = table.element_ty;
                     let export = Self::export_from(export, &considering_module, old_id_table, ty);
-                    self.resolver_table.add_export(export);
+                    self.table.add_export(export);
                 }
                 walrus::ExportItem::Memory(old_id_memory) => {
                     let old_id_memory: Identifier<Old, _> = (*old_id_memory).into();
                     let export = Self::export_from(export, &considering_module, old_id_memory, ());
-                    self.resolver_memory.add_export(export);
+                    self.memory.add_export(export);
                 }
                 walrus::ExportItem::Global(old_id_global) => {
                     let global = considering_globals.get(*old_id_global);
                     let old_id_global: Identifier<Old, _> = (*old_id_global).into();
                     let ty = global.ty;
                     let export = Self::export_from(export, &considering_module, old_id_global, ty);
-                    self.resolver_global.add_export(export);
+                    self.global.add_export(export);
                 }
             }
         }
@@ -280,10 +270,10 @@ impl Resolver {
         merge_options: &MergeOptions,
     ) -> Result<AllReducedDependencies, Error> {
         let Self {
-            resolver_function,
-            resolver_table,
-            resolver_memory,
-            resolver_global,
+            function: resolver_function,
+            table: resolver_table,
+            memory: resolver_memory,
+            global: resolver_global,
         } = self;
 
         let resolved_functions = Self::resolve_functions(resolver_function, merge_options)?;
