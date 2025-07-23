@@ -69,7 +69,7 @@ impl AsMappingRef for Export<Function, FuncType, OldIdFunction> {
 impl Merger {
     fn add_new_import(
         module: &mut Module,
-        old_import: Import<Function, FuncType, OldIdFunction>,
+        old_import: &Import<Function, FuncType, OldIdFunction>,
     ) -> NewIdFunction {
         let module_identifier = old_import.exporting_module().identifier();
         let name = old_import.exporting_identifier().identifier();
@@ -84,7 +84,7 @@ impl Merger {
     fn add_new_local(
         module: &mut Module,
         mapping: &mut Mapping,
-        old_local: Local<Function, FuncType, OldIdFunction, Locals>,
+        old_local: &Local<Function, FuncType, OldIdFunction, Locals>,
     ) -> NewIdFunction {
         let old_module: IdentifierModule = old_local.module().identifier().to_string().into();
         let ty = old_local.ty();
@@ -106,7 +106,7 @@ impl Merger {
 
     fn add_new_export(
         module: &mut Module,
-        old_export: Export<Function, FuncType, OldIdFunction>,
+        old_export: &Export<Function, FuncType, OldIdFunction>,
         new_index: NewIdFunction,
     ) {
         let identifier = old_export.identifier().identifier();
@@ -127,7 +127,7 @@ impl Merger {
 
         // 1. Include all remaining imports:
         for old_import in reduced_dependencies.remaining_imports() {
-            let new_import = Self::add_new_import(&mut new_merged, old_import.clone());
+            let new_import = Self::add_new_import(&mut new_merged, old_import);
             new_mapping
                 .funcs
                 .insert(old_import.to_mapping_ref(), new_import);
@@ -139,16 +139,15 @@ impl Merger {
             .keys()
             .filter_map(|node| node.as_local())
             .for_each(|old_local| {
-                let new_local =
-                    Self::add_new_local(&mut new_merged, &mut new_mapping, old_local.clone());
+                let new_local = Self::add_new_local(&mut new_merged, &mut new_mapping, old_local);
                 new_mapping
                     .funcs
                     .insert(old_local.to_mapping_ref(), new_local);
             });
 
-        for (node, reduced) in reduced_dependencies.reduction_map().iter() {
+        for (node, reduced) in reduced_dependencies.reduction_map() {
             // Find location of reduced node:
-            let reduced = new_mapping.funcs.get(&reduced.to_mapping_ref()).cloned();
+            let reduced = new_mapping.funcs.get(&reduced.to_mapping_ref()).copied();
 
             // The reduced should be present in the new mapping
             #[cfg(debug_assertions)]
@@ -170,8 +169,8 @@ impl Merger {
 
             // Inject pointer from old to new
             if let Some(reduced) = reduced {
-                Self::add_new_export(&mut new_merged, old_export.clone(), *reduced);
-            };
+                Self::add_new_export(&mut new_merged, old_export, *reduced);
+            }
         }
 
         Self {
@@ -556,7 +555,7 @@ impl Merger {
                             considering_module_name.to_string().into(),
                             (*before_id).into()
                         )));
-                    };
+                    }
                 }
                 ExportItem::Table(before_index) => {
                     let duplicate_table_export =

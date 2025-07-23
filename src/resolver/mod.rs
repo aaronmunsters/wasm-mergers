@@ -204,8 +204,8 @@ where
     Kind: Hash + Eq,
 {
     fn new() -> Self {
-        let exports = Default::default();
-        let indices = Default::default();
+        let exports = Map::default();
+        let indices = Map::default();
         Self { exports, indices }
     }
 
@@ -293,7 +293,7 @@ where
 {
     pub(crate) fn new() -> Self {
         let graph = Acyclic::new();
-        let ref_map = Default::default();
+        let ref_map = Map::default();
         Self { graph, ref_map }
     }
 
@@ -443,7 +443,7 @@ impl<Kind, Type: Eq, Index, LocalData> Linked<Kind, Type, Index, LocalData> {
                     // When a local is exported, only in debugging mode the type
                     // match for an export & the target is asserted
                     #[cfg(debug_assertions)]
-                    debug_assert!(equal_type)
+                    debug_assert!(equal_type);
                 }
             }
         }
@@ -489,7 +489,7 @@ where
 
     pub(crate) fn clashing_rename(
         &mut self,
-        rename_strategy: &fn(IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>,
+        rename_strategy: fn(IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>,
     ) {
         let clashes = self.clashes();
 
@@ -501,7 +501,7 @@ where
 
                 if let Node::Export(export) = node {
                     let module = export.module.clone();
-                    export.identifier = rename_strategy(module, name.clone())
+                    export.identifier = rename_strategy(module, name.clone());
                 }
             }
         }

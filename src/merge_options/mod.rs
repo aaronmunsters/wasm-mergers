@@ -51,18 +51,22 @@ pub struct KeepExports {
 }
 
 impl KeepExports {
+    #[must_use]
     pub fn functions(&self) -> &Set<ExportIdentifier<IdentifierItem<Function>>> {
         &self.functions
     }
 
+    #[must_use]
     pub fn tables(&self) -> &Set<ExportIdentifier<IdentifierItem<Table>>> {
         &self.tables
     }
 
+    #[must_use]
     pub fn memory(&self) -> &Set<ExportIdentifier<IdentifierItem<Memory>>> {
         &self.memory
     }
 
+    #[must_use]
     pub fn globals(&self) -> &Set<ExportIdentifier<IdentifierItem<Global>>> {
         &self.globals
     }

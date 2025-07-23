@@ -116,9 +116,9 @@ where
         }
 
         ReducedDependencies {
+            reduction_map,
             remaining_imports,
             remaining_exports,
-            reduction_map,
         }
     }
 
@@ -144,7 +144,7 @@ where
             debug_assert_eq!(successors.clone().count(), 1);
 
             if let Some(successor) = successors.next() {
-                current = successor
+                current = successor;
             }
         }
     }

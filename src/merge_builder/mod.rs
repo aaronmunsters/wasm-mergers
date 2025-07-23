@@ -109,7 +109,7 @@ impl Resolver {
                 let old_id: Identifier<Old, _> = id.into();
                 let ty = FuncType::from_types(considering_funcs.get(id).ty(), considering_types);
                 let export = Export {
-                    module: considering_module.to_string().into(),
+                    module: (*considering_module).to_string().into(),
                     identifier: export.name.to_string().into(),
                     index: old_id,
                     kind: Function,
@@ -135,7 +135,7 @@ impl Resolver {
         // Assert exports are not clashing
         match &merge_options.clashing_exports {
             ClashingExports::Rename(rename_strategy) => {
-                linked.clashing_rename(&rename_strategy.functions)
+                linked.clashing_rename(rename_strategy.functions);
             }
             ClashingExports::Signal => linked
                 .clashing_signal()
