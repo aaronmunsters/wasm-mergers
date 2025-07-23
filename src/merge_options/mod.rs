@@ -22,10 +22,10 @@ pub type IdentifierGlobal = IdentifierItem<Function>;
 
 #[derive(Debug, Hash, Clone)]
 pub struct RenameStrategy {
-    pub functions: fn(IdentifierModule, IdentifierFunction) -> IdentifierFunction,
-    pub tables: fn(IdentifierModule, IdentifierTable) -> IdentifierTable,
-    pub memory: fn(IdentifierModule, IdentifierMemory) -> IdentifierMemory,
-    pub globals: fn(IdentifierModule, IdentifierGlobal) -> IdentifierGlobal,
+    pub functions: fn(&IdentifierModule, IdentifierFunction) -> IdentifierFunction,
+    pub tables: fn(&IdentifierModule, IdentifierTable) -> IdentifierTable,
+    pub memory: fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory,
+    pub globals: fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal,
 }
 
 #[derive(Debug, Default, Hash, Clone)]
@@ -135,7 +135,7 @@ pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
 /// (mod (export "A:f" x)
 ///      (export "B:f" y))
 /// ```
-fn default_rename<T: Into<String> + From<String>>(m: IdentifierModule, v: T) -> T {
+fn default_rename<T: Into<String> + From<String>>(m: &IdentifierModule, v: T) -> T {
     let v = v.into();
     format!("{m}:{v}").into()
 }

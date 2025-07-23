@@ -569,7 +569,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let renamed =
-                                    (renamer.tables)(considering_module_name.clone(), table_name);
+                                    (renamer.tables)(&considering_module_name, table_name);
 
                                 let new_table_id: Identifier<New, _> = *self
                                     .mapping
@@ -612,7 +612,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let renamed =
-                                    (renamer.memory)(considering_module_name.clone(), memory_name);
+                                    (renamer.memory)(&considering_module_name, memory_name);
                                 let new_memory_id: Identifier<New, _> = *self
                                     .mapping
                                     .memories
@@ -655,7 +655,7 @@ impl Merger {
                         match &self.options.clashing_exports {
                             ClashingExports::Rename(renamer) => {
                                 let renamed =
-                                    (renamer.globals)(considering_module_name.clone(), global_name);
+                                    (renamer.globals)(&considering_module_name, global_name);
                                 let new_global_id: Identifier<New, _> = *self
                                     .mapping
                                     .globals

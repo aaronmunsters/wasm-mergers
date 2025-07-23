@@ -489,7 +489,7 @@ where
 
     pub(crate) fn clashing_rename(
         &mut self,
-        rename_strategy: fn(IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>,
+        rename_strategy: fn(&IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>,
     ) {
         let clashes = self.clashes();
 
@@ -500,7 +500,7 @@ where
                 debug_assert!(matches!(node, Node::Export(_)));
 
                 if let Node::Export(export) = node {
-                    let module = export.module.clone();
+                    let module = &export.module;
                     export.identifier = rename_strategy(module, name.clone());
                 }
             }
