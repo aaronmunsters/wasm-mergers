@@ -32,7 +32,7 @@ fn iter_permutations<'a>(
 ///     - `even(n)` returns `true` if `n` is even, otherwise `false`.
 ///     - `odd(n)` returns `true` if `n` is odd, otherwise `false`.
 #[test]
-fn merge_even_odd() {
+fn merge_even_odd() -> Result<(), Error> {
     const WAT_ODD: &str = r#"
       (module
         (import "even" "even" (func $even (param i32) (result i32)))
@@ -101,10 +101,10 @@ fn merge_even_odd() {
         v == 1
     }
 
-    let manual_merged = { parse_str(WAT_EVEN_ODD).unwrap() };
+    let manual_merged = { parse_str(WAT_EVEN_ODD)? };
     let lib_merged = {
-        let wat_even = parse_str(WAT_EVEN).unwrap();
-        let wat_odd = parse_str(WAT_ODD).unwrap();
+        let wat_even = parse_str(WAT_EVEN)?;
+        let wat_odd = parse_str(WAT_ODD)?;
 
         let modules: &[&NamedModule<'_, &[u8]>] = &[
             &NamedModule::new("even", &wat_even),
@@ -117,9 +117,7 @@ fn merge_even_odd() {
         keep_exports.keep_function("odd".to_string().into(), "odd".into());
         merge_conf.keep_exports = Some(keep_exports);
 
-        MergeConfiguration::new(modules, merge_conf)
-            .merge()
-            .unwrap()
+        MergeConfiguration::new(modules, merge_conf).merge()?
     };
 
     // Structural assertion
@@ -141,8 +139,8 @@ fn merge_even_odd() {
     for merged_wasm in [lib_merged, manual_merged] {
         // Interpret even & odd
         let mut store = Store::<()>::default();
-        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+        let module = Module::from_binary(store.engine(), &merged_wasm)?;
+        let instance = Instance::new(&mut store, &module, &[])?;
 
         declare_fns_from_wasm! { instance, store,
            even [i32] [i32],
@@ -154,25 +152,27 @@ fn merge_even_odd() {
             assert_eq!(to_bool(wasm_call!(store, odd, i)), r_odd(i));
         }
     }
+
+    Ok(())
 }
 
 #[test]
-fn test_earmark() {
+fn test_earmark() -> Result<(), Error> {
     const NEEDLE: &[u8] = "webassembly-mergers".as_bytes();
     const NEEDLE_LEN: usize = NEEDLE.len();
     const M: &str = "(module)";
     webassembly_mergers::MergeConfiguration::new(
         &[
-            &NamedModule::new("A", &wat::parse_str(M).unwrap()),
-            &NamedModule::new("B", &wat::parse_str(M).unwrap()),
+            &NamedModule::new("A", &wat::parse_str(M)?),
+            &NamedModule::new("B", &wat::parse_str(M)?),
         ],
         MergeOptions::default(),
     )
-    .merge()
-    .unwrap()
+    .merge()?
     .windows(NEEDLE_LEN)
     .position(|w| NEEDLE == w)
-    .unwrap();
+    .map(|_| ())
+    .ok_or(Error::msg("Needle not found"))
 }
 
 /// Verifies that merging a set of modules that forms a cycle
@@ -185,7 +185,7 @@ fn test_earmark() {
 ///          [Mutual recursion cycle]
 ///  ```
 #[test]
-fn merge_cycle_chain() {
+fn merge_cycle_chain() -> Result<(), Error> {
     const WAT_MOD_ABCDE: &str = r#"
       (module
         (func $func_a (param $n i32) (result i32)
@@ -280,13 +280,13 @@ fn merge_cycle_chain() {
         (export "func_e" (func $func_e)))
       "#;
 
-    let manual_merged = { parse_str(WAT_MOD_ABCDE).unwrap() };
+    let manual_merged = { parse_str(WAT_MOD_ABCDE)? };
 
-    let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
-    let wat_mod_b = parse_str(WAT_MOD_B).unwrap();
-    let wat_mod_c = parse_str(WAT_MOD_C).unwrap();
-    let wat_mod_d = parse_str(WAT_MOD_D).unwrap();
-    let wat_mod_e = parse_str(WAT_MOD_E).unwrap();
+    let wat_mod_a = parse_str(WAT_MOD_A)?;
+    let wat_mod_b = parse_str(WAT_MOD_B)?;
+    let wat_mod_c = parse_str(WAT_MOD_C)?;
+    let wat_mod_d = parse_str(WAT_MOD_D)?;
+    let wat_mod_e = parse_str(WAT_MOD_E)?;
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("WAT_MOD_A", &wat_mod_a),
@@ -325,8 +325,8 @@ fn merge_cycle_chain() {
 
         // Interpret even & odd
         let mut store = Store::<()>::default();
-        let module = Module::from_binary(store.engine(), &merged_wasm).unwrap();
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+        let module = Module::from_binary(store.engine(), &merged_wasm)?;
+        let instance = Instance::new(&mut store, &module, &[])?;
 
         // Fetch `even` and `odd` export
 
@@ -348,6 +348,8 @@ fn merge_cycle_chain() {
             );
         }
     }
+
+    Ok(())
 }
 
 /// Verifies that merging a set of modules that forms infinite loop
@@ -359,7 +361,7 @@ fn merge_cycle_chain() {
 ///
 /// where `func_a` and `func_a'` are defined as a lookup of each other.
 #[test]
-fn illegal_loop() {
+fn illegal_loop() -> Result<(), Error> {
     const WAT_MOD_B: &str = r#"
       (module
         (import "WAT_MOD_A" "func_a" (func $func_a (param i32) (result i32)))
@@ -372,8 +374,8 @@ fn illegal_loop() {
         (export "func_a" (func $func_b)))
       "#;
 
-    let wat_mod_a = parse_str(WAT_MOD_A).unwrap();
-    let wat_mod_b = parse_str(WAT_MOD_B).unwrap();
+    let wat_mod_a = parse_str(WAT_MOD_A)?;
+    let wat_mod_b = parse_str(WAT_MOD_B)?;
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("WAT_MOD_A", &wat_mod_a),
@@ -388,6 +390,8 @@ fn illegal_loop() {
         error,
         webassembly_mergers::error::Error::ImportCycle
     ));
+
+    Ok(())
 }
 
 /// 3-Module Pass-Through Chain
@@ -400,7 +404,7 @@ fn illegal_loop() {
 ///
 /// Expected: After merging, `run()` yields 42.
 #[test]
-fn merge_pass_through_module() {
+fn merge_pass_through_module() -> Result<(), Error> {
     const WAT_A: &str = r#"
       (module
         (func $a (result i32)
@@ -422,9 +426,9 @@ fn merge_pass_through_module() {
         (export "run" (func $run)))
       "#;
 
-    let wat_a = parse_str(WAT_A).unwrap();
-    let wat_b = parse_str(WAT_B).unwrap();
-    let wat_c = parse_str(WAT_C).unwrap();
+    let wat_a = parse_str(WAT_A)?;
+    let wat_b = parse_str(WAT_B)?;
+    let wat_c = parse_str(WAT_C)?;
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("a", &wat_a),
@@ -433,20 +437,20 @@ fn merge_pass_through_module() {
     ];
 
     for modules in iter_permutations(modules) {
-        let merged = MergeConfiguration::new(&modules, MergeOptions::default())
-            .merge()
-            .expect("Merge failed");
+        let merged = MergeConfiguration::new(&modules, MergeOptions::default()).merge()?;
 
         // Instantiate & run merged module
         let mut store = Store::<()>::default();
-        let module = Module::from_binary(store.engine(), &merged).unwrap();
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
+        let module = Module::from_binary(store.engine(), &merged)?;
+        let instance = Instance::new(&mut store, &module, &[])?;
 
         declare_fns_from_wasm! {instance, store, run [] [i32]};
         let result = wasm_call!(store, run);
 
         assert_eq!(result, 42, "Expected 42 from chained import, got {result}",);
     }
+
+    Ok(())
 }
 
 /// This test defines the Fibonacci function across two mutually dependent modules:
@@ -455,7 +459,7 @@ fn merge_pass_through_module() {
 ///
 /// This verifies that `webassembly_mergers` can correctly resolve circular imports.
 #[test]
-fn merge_cross_module_fibonacci() {
+fn merge_cross_module_fibonacci() -> Result<(), Error> {
     const WAT_MODULE_A: &str = r#"
       (module
         (import "indirect_fib" "indirect_fib" (func $indirect_fib (param i32) (result i32)))
@@ -511,8 +515,8 @@ fn merge_cross_module_fibonacci() {
     }
 
     // Parse WAT source to binary
-    let binary_a = parse_str(WAT_MODULE_A).expect("Failed to parse module A");
-    let binary_b = parse_str(WAT_MODULE_B).expect("Failed to parse module B");
+    let binary_a = parse_str(WAT_MODULE_A)?;
+    let binary_b = parse_str(WAT_MODULE_B)?;
 
     // Prepare named modules
     let modules: &[&NamedModule<'_, &[u8]>] = &[
@@ -527,16 +531,12 @@ fn merge_cross_module_fibonacci() {
     merge_conf.keep_exports = Some(keep_exports);
 
     for modules in iter_permutations(modules) {
-        let merged_wasm: Vec<u8> = MergeConfiguration::new(&modules, merge_conf.clone())
-            .merge()
-            .expect("Failed to merge modules");
+        let merged_wasm: Vec<u8> = MergeConfiguration::new(&modules, merge_conf.clone()).merge()?;
 
         // Instantiate merged module
         let mut store = Store::<()>::default();
-        let module =
-            Module::from_binary(store.engine(), &merged_wasm).expect("Invalid Wasm module");
-        let instance =
-            Instance::new(&mut store, &module, &[]).expect("Failed to instantiate module");
+        let module = Module::from_binary(store.engine(), &merged_wasm)?;
+        let instance = Instance::new(&mut store, &module, &[])?;
 
         // Get exported Fibonacci function
         declare_fns_from_wasm! { instance, store, fib [i32] [i32] };
@@ -551,6 +551,8 @@ fn merge_cross_module_fibonacci() {
             );
         }
     }
+
+    Ok(())
 }
 
 /// Module structures:
@@ -580,7 +582,7 @@ fn merge_cross_module_fibonacci() {
 /// - All functions should be resolved internally (no remaining imports)
 /// - Final merged module should export: `d()`, `e()`, `f()`
 #[test]
-fn composition_of_cross_deps() {
+fn composition_of_cross_deps() -> Result<(), Error> {
     const WAT_AB: &str = r#"
       (module
         (func $a1 (result i32) i32.const 2)
@@ -620,9 +622,9 @@ fn composition_of_cross_deps() {
         (export "e" (func $e)))
       "#;
 
-    let wat_ab = parse_str(WAT_AB).unwrap();
-    let wat_cd = parse_str(WAT_CD).unwrap();
-    let wat_e = parse_str(WAT_E).unwrap();
+    let wat_ab = parse_str(WAT_AB)?;
+    let wat_cd = parse_str(WAT_CD)?;
+    let wat_e = parse_str(WAT_E)?;
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("ab", &wat_ab),
@@ -630,15 +632,13 @@ fn composition_of_cross_deps() {
         &NamedModule::new("e", &wat_e),
     ];
 
-    let merged = MergeConfiguration::new(modules, MergeOptions::default())
-        .merge()
-        .unwrap();
+    let merged = MergeConfiguration::new(modules, MergeOptions::default()).merge()?;
 
     // Instantiate merged module (should be self-contained)
     let mut store = Store::<()>::default();
     let engine = store.engine();
-    let module = Module::from_binary(engine, &merged).unwrap();
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+    let module = Module::from_binary(engine, &merged)?;
+    let instance = Instance::new(&mut store, &module, &[])?;
 
     declare_fns_from_wasm! { instance, store, e [] [i32] };
 
@@ -649,10 +649,12 @@ fn composition_of_cross_deps() {
     let rs_e = || ((rs_a() * 11) * (rs_b() * 13)) * ((rs_c() * 17) * (rs_d() * 23));
 
     assert_eq!(wasm_call!(store, e), rs_e());
+
+    Ok(())
 }
 
 #[test]
-fn test_multi_memory() {
+fn test_multi_memory() -> Result<(), Error> {
     let gen_wat = |prefix| {
         format!(
             r#"
@@ -688,8 +690,8 @@ fn test_multi_memory() {
         )
     };
 
-    let wasm_a = parse_str(gen_wat("a")).unwrap();
-    let wasm_b = parse_str(gen_wat("b")).unwrap();
+    let wasm_a = parse_str(gen_wat("a"))?;
+    let wasm_b = parse_str(gen_wat("b"))?;
 
     let modules: &[&NamedModule<'_, &[u8]>] = &[
         &NamedModule::new("A", &wasm_a),
@@ -701,15 +703,13 @@ fn test_multi_memory() {
         ..Default::default()
     };
 
-    let merged = MergeConfiguration::new(modules, merge_options)
-        .merge()
-        .unwrap();
+    let merged = MergeConfiguration::new(modules, merge_options).merge()?;
 
     // Instantiate merged module (should be self-contained)
     let mut store = Store::<()>::default();
     let engine = store.engine();
-    let module = Module::from_binary(engine, &merged).unwrap();
-    let instance = Instance::new(&mut store, &module, &[]).unwrap();
+    let module = Module::from_binary(engine, &merged)?;
+    let instance = Instance::new(&mut store, &module, &[])?;
 
     declare_fns_from_wasm! { instance, store,
       // In module A
@@ -739,6 +739,8 @@ fn test_multi_memory() {
             assert_eq!(actual_value, wasm_call!(store, b_load_byte_from_1, offset));
         }
     }
+
+    Ok(())
 }
 
 #[test]
