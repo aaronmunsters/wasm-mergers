@@ -412,6 +412,8 @@ where
     Index: Hash + Eq + Clone,
     LocalData: Hash + Eq + Clone,
 {
+    // FIXME: all export names should be unique.
+    //        ref: https://webassembly.github.io/spec/core/syntax/modules.html#exports
     pub(crate) fn clashes(&self) -> Set<ExportIdentifier<IdentifierItem<Kind>>> {
         let mut exports: Map<IdentifierItem<Kind>, Vec<Export<Kind, Type, Index>>> = Map::new();
         for (index, node) in self.graph.node_references() {
