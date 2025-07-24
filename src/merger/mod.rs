@@ -8,8 +8,10 @@ use walrus::{
 
 use crate::error::{Error, ExportKind};
 use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
-use crate::merge_builder::AllReducedDependencies;
-use crate::merge_options::{ClashingExports, MergeOptions};
+use crate::merge_builder::AllMergeStrategies;
+use crate::merge_options::{
+    ClashingExports, DEFAULT_RENAMER, ExportIdentifier, IdentifierFunction, MergeOptions,
+};
 use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::{Export, Import, Local, Node};
@@ -29,7 +31,7 @@ pub(crate) struct Merger {
     mapping: Mapping,
     names: Vec<(String, String)>,
     starts: Vec<FunctionId>,
-    reduced_dependencies: AllReducedDependencies,
+    reduced_dependencies: AllMergeStrategies,
 }
 
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
@@ -107,18 +109,18 @@ impl Merger {
 
     fn add_new_export(
         module: &mut Module,
-        old_export: &Export<Function, FuncType, OldIdFunction>,
+        new_export_identifier: IdentifierFunction,
         new_index: NewIdFunction,
     ) {
-        let identifier = old_export.identifier().identifier();
-        let export_index = module
-            .exports
-            .add(identifier, ExportItem::Function(*new_index));
+        let export_index = module.exports.add(
+            new_export_identifier.identifier(),
+            ExportItem::Function(*new_index),
+        );
         let _ = export_index; // The particular ID is not relevant post merge
     }
 
     #[must_use]
-    pub(crate) fn new(reduced_dependencies: AllReducedDependencies, options: MergeOptions) -> Self {
+    pub(crate) fn new(reduced_dependencies: AllMergeStrategies, options: MergeOptions) -> Self {
         // Create new empty Wasm module
         let mut new_merged = Module::default();
         let mut new_mapping = Mapping::default();
@@ -128,7 +130,7 @@ impl Merger {
         let _ = reduced_dependencies.tables; // TODO: cover in this pass
 
         // 1. Include all remaining imports:
-        for old_import in reduced_dependencies.functions.remaining_imports() {
+        for old_import in reduced_dependencies.functions.remaining_imports.iter() {
             let new_import = Self::add_new_import(&mut new_merged, old_import);
             new_mapping
                 .funcs
@@ -138,7 +140,7 @@ impl Merger {
         // 2. Include all locals:
         reduced_dependencies
             .functions
-            .reduction_map()
+            .reduction_map
             .keys()
             .filter_map(|node| node.as_local())
             .for_each(|old_local| {
@@ -148,7 +150,7 @@ impl Merger {
                     .insert(old_local.to_mapping_ref(), new_local);
             });
 
-        for (node, reduced) in reduced_dependencies.functions.reduction_map() {
+        for (node, reduced) in reduced_dependencies.functions.reduction_map.iter() {
             // Find location of reduced node:
             let reduced = new_mapping.funcs.get(&reduced.to_mapping_ref()).copied();
 
@@ -162,7 +164,7 @@ impl Merger {
             }
         }
 
-        for old_export in reduced_dependencies.functions.remaining_exports() {
+        for old_export in reduced_dependencies.functions.remaining_exports.iter() {
             let reduced = new_mapping.funcs.get(&old_export.to_mapping_ref());
 
             // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
@@ -170,9 +172,23 @@ impl Merger {
             #[cfg(debug_assertions)]
             debug_assert!(reduced.is_some());
 
+            let export_key = ExportIdentifier {
+                module: old_export.module.clone(),
+                name: old_export.identifier.clone(),
+            };
+
+            let new_export_identifier = reduced_dependencies
+                .functions
+                .renames
+                .get(&export_key)
+                .cloned()
+                .unwrap_or_else(|| {
+                    IdentifierFunction::from(old_export.identifier().identifier().to_string())
+                });
+
             // Inject pointer from old to new
             if let Some(reduced) = reduced {
-                Self::add_new_export(&mut new_merged, old_export, *reduced);
+                Self::add_new_export(&mut new_merged, new_export_identifier, *reduced);
             }
         }
 
@@ -431,7 +447,7 @@ impl Merger {
                     if self
                         .reduced_dependencies
                         .functions
-                        .remaining_imports()
+                        .remaining_imports
                         .contains(&import)
                     {
                         // Assert it is present
@@ -530,9 +546,7 @@ impl Merger {
 
         for export in exports.iter() {
             match &export.item {
-                // FIXME: If the function can be resolved, it could be hidden
-                //        If the function cannot be resolved, & it name-clashes
-                //        with another function ... then?
+                // FIXME: assert based on renamed injection, not old identifier
                 ExportItem::Function(before_id) => {
                     let ty = funcs.get(*before_id).ty();
                     let ty = FuncType::from_types(ty, types);
@@ -546,7 +560,7 @@ impl Merger {
                     if self
                         .reduced_dependencies
                         .functions
-                        .remaining_exports()
+                        .remaining_exports
                         .contains(&lookup_export)
                     {
                         #[cfg(debug_assertions)]
@@ -563,47 +577,38 @@ impl Merger {
                     }
                 }
                 ExportItem::Table(before_index) => {
-                    let duplicate_table_export =
-                        self.merged.exports.iter().find(|existing_export| {
-                            existing_export.name == export.name
-                                && matches!(existing_export.item, ExportItem::Table(_))
-                        });
-                    let old_table_id: Identifier<Old, _> = (*before_index).into();
-                    let table_name = export.name.to_string().into();
-                    if let Some(duplicate_table_export) = duplicate_table_export {
-                        match &self.options.clashing_exports {
-                            ClashingExports::Rename(renamer) => {
-                                let renamed =
-                                    (renamer.tables)(&considering_module_name, table_name);
-
-                                let new_table_id: Identifier<New, _> = *self
-                                    .mapping
-                                    .tables
-                                    .get(&(considering_module_name.clone(), old_table_id))
-                                    .unwrap();
-                                self.merged
-                                    .exports
-                                    .add(renamed.identifier(), ExportItem::Table(*new_table_id));
-                            }
-                            ClashingExports::Signal => {
-                                // TODO: this could be reported early when resolving
-                                debug_assert_eq!(duplicate_table_export.name, export.name);
-                                return Err(Error::DuplicateNameExport(
-                                    export.name.clone(),
-                                    ExportKind::Table,
-                                ));
-                            }
-                        }
+                    // FIXME: The code below adds the table & performs the rename.
+                    //        Adding functions happens during the call to `Self::new`.
+                    //        Ideally, during `Self::new` for each kind (funcs, tables, ...)
+                    //        the added item is renamed if required.
+                    //        Then, during this phase, the (optionally renamed)
+                    //        item is looked up & asserted to be included, however
+                    //        only in #[cfg(debug_assertions)] mode.
+                    // FIXME: move insertions to the above phase & here only perform
+                    //        a check.
+                    let clashes = &self.reduced_dependencies.tables.renames;
+                    let old_id: Identifier<Old, _> = (*before_index).into();
+                    let identifier = export.name.to_string().into();
+                    let identifier = if clashes.contains_key(&ExportIdentifier {
+                        module: considering_module_name.clone(),
+                        name: export.name.to_string().into(),
+                    }) {
+                        let renamer = match &self.options.clashing_exports {
+                            ClashingExports::Rename(rename_strategy) => rename_strategy.tables,
+                            ClashingExports::Signal => DEFAULT_RENAMER.tables, // Technically impossible case [1]
+                        };
+                        (renamer)(&considering_module_name, identifier)
                     } else {
-                        let new_table_id: Identifier<New, _> = *self
-                            .mapping
-                            .tables
-                            .get(&(considering_module_name.clone(), old_table_id))
-                            .unwrap();
-                        self.merged
-                            .exports
-                            .add(&export.name, ExportItem::Table(*new_table_id));
-                    }
+                        identifier
+                    };
+                    let new_id: Identifier<New, _> = *self
+                        .mapping
+                        .tables
+                        .get(&(considering_module_name.clone(), old_id))
+                        .unwrap();
+                    self.merged
+                        .exports
+                        .add(identifier.identifier(), ExportItem::Table(*new_id));
                 }
                 ExportItem::Memory(before_index) => {
                     let duplicate_memory_export =
@@ -779,3 +784,5 @@ impl CopyForMerger for ConstExpr {
         }
     }
 }
+
+/* [1]: This case is impossible since in an earlier pass clashing names had been covered. */

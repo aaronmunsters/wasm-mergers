@@ -1,4 +1,5 @@
-use std::collections::HashSet as Set;
+use std::collections::{HashMap as Map, HashSet as Set};
+use std::hash::Hash;
 use std::marker::PhantomData;
 
 use walrus::Module;
@@ -10,13 +11,16 @@ use crate::error::Error;
 use crate::kinds::FuncType;
 use crate::kinds::Function;
 use crate::kinds::Global;
+use crate::kinds::IdentifierItem;
 use crate::kinds::IdentifierModule;
 use crate::kinds::Locals;
 use crate::kinds::Memory;
 use crate::kinds::Table;
 use crate::merge_options::ClashingExports;
+use crate::merge_options::ExportIdentifier;
 use crate::merge_options::KeepExports;
 use crate::merge_options::LinkTypeMismatch;
+use crate::merge_options::RenameStrategy;
 use crate::merger::old_to_new_mapping::OldIdFunction;
 use crate::merger::old_to_new_mapping::OldIdGlobal;
 use crate::merger::old_to_new_mapping::OldIdMemory;
@@ -24,7 +28,7 @@ use crate::merger::old_to_new_mapping::OldIdTable;
 use crate::merger::provenance_identifier::Identifier;
 use crate::merger::provenance_identifier::Old;
 use crate::named_module::NamedParsedModule;
-use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::dependency_reduction::{ReducedDependencies, ReductionMap};
 use crate::resolver::{Export, Import, Local, Resolver as GraphResolver};
 
 #[derive(Debug, Clone)]
@@ -36,12 +40,31 @@ pub(crate) struct Resolver {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AllReducedDependencies {
-    pub functions: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
-    pub tables: ReducedDependencies<Table, RefType, OldIdTable, ()>,
-    pub memories: ReducedDependencies<Memory, (), OldIdMemory, ()>,
-    pub globals: ReducedDependencies<Global, ValType, OldIdGlobal, ()>,
+pub(crate) struct AllMergeStrategies {
+    pub functions: MergeStrategy<Function, FuncType, OldIdFunction, Locals>,
+    pub tables: MergeStrategy<Table, RefType, OldIdTable, ()>,
+    pub memories: MergeStrategy<Memory, (), OldIdMemory, ()>,
+    pub globals: MergeStrategy<Global, ValType, OldIdGlobal, ()>,
 }
+
+#[derive(Debug, Clone)]
+pub(crate) struct MergeStrategy<Kind, Type, Index, LocalData> {
+    /// Maps each node to its reduction source (either a remaining import or a local)
+    pub(crate) reduction_map: ReductionMap<Kind, Type, Index, LocalData>,
+
+    /// The remaining imports that should be present after resolution
+    pub(crate) remaining_imports: Set<Import<Kind, Type, Index>>,
+
+    /// The remaining exports that should be present after resolution
+    pub(crate) remaining_exports: Set<Export<Kind, Type, Index>>,
+
+    /// The rename map
+    pub(crate) renames: Map<ExportIdentifier<IdentifierItem<Kind>>, IdentifierItem<Kind>>,
+}
+
+type KeepRetriever<Kind> = fn(&KeepExports) -> &Set<ExportIdentifier<IdentifierItem<Kind>>>;
+type RenameRetriever<Kind> =
+    fn(&RenameStrategy) -> &fn(&IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>;
 
 impl Resolver {
     pub(crate) fn new() -> Self {
@@ -265,10 +288,7 @@ impl Resolver {
         Ok(())
     }
 
-    pub(crate) fn resolve(
-        self,
-        merge_options: &MergeOptions,
-    ) -> Result<AllReducedDependencies, Error> {
+    pub(crate) fn resolve(self, merge_options: &MergeOptions) -> Result<AllMergeStrategies, Error> {
         let Self {
             function: resolver_function,
             table: resolver_table,
@@ -276,12 +296,35 @@ impl Resolver {
             global: resolver_global,
         } = self;
 
-        let resolved_functions = Self::resolve_functions(resolver_function, merge_options)?;
-        let resolved_tables = Self::resolve_tables(resolver_table, merge_options)?;
-        let resolved_memories = Self::resolve_memories(resolver_memory, merge_options)?;
-        let resolved_globals = Self::resolve_globals(resolver_global, merge_options)?;
+        let resolved_functions = Self::resolve_kind(
+            resolver_function,
+            merge_options,
+            KeepExports::functions,
+            RenameStrategy::functions,
+        )?;
 
-        Ok(AllReducedDependencies {
+        let resolved_tables = Self::resolve_kind(
+            resolver_table,
+            merge_options,
+            KeepExports::tables,
+            RenameStrategy::tables,
+        )?;
+
+        let resolved_memories = Self::resolve_kind(
+            resolver_memory,
+            merge_options,
+            KeepExports::memories,
+            RenameStrategy::memories,
+        )?;
+
+        let resolved_globals = Self::resolve_kind(
+            resolver_global,
+            merge_options,
+            KeepExports::globals,
+            RenameStrategy::globals,
+        )?;
+
+        Ok(AllMergeStrategies {
             functions: resolved_functions,
             tables: resolved_tables,
             memories: resolved_memories,
@@ -289,56 +332,19 @@ impl Resolver {
         })
     }
 
-    fn resolve_functions(
-        functions: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
+    fn resolve_kind<Kind, Type, Index, LocalData>(
+        resolver: GraphResolver<Kind, Type, Index, LocalData>,
         merge_options: &MergeOptions,
-    ) -> Result<ReducedDependencies<Function, FuncType, OldIdFunction, Locals>, Error> {
-        // Link all up
-        let mut linked = functions.link_nodes().map_err(|_| Error::ImportCycle)?;
-
-        // Assert exports are not clashing
-        match &merge_options.clashing_exports {
-            ClashingExports::Rename(rename_strategy) => {
-                linked.clashing_rename(rename_strategy.functions);
-            }
-            ClashingExports::Signal => linked
-                .clashing_signal()
-                .map_err(|_| Error::ExportNameClash)?,
-        }
-
-        // Assert types match
-        match &merge_options.link_type_mismatch {
-            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
-            LinkTypeMismatch::Signal => linked
-                .type_check_mismatch_signal()
-                .map_err(|_| Error::TypeMismatch)?,
-        }
-
-        // Reduce all dependencies
-        let reduced_dependencies = linked.reduce_dependencies(
-            merge_options
-                .keep_exports
-                .as_ref()
-                .map(KeepExports::functions),
-        );
-
-        Ok(reduced_dependencies)
-    }
-
-    fn resolve_tables(
-        tables: GraphResolver<Table, RefType, OldIdTable, ()>,
-        merge_options: &MergeOptions,
-    ) -> Result<ReducedDependencies<Table, RefType, OldIdTable, ()>, Error> {
-        let mut linked = tables.link_nodes().map_err(|_| Error::ImportCycle)?;
-
-        match &merge_options.clashing_exports {
-            ClashingExports::Rename(rename_strategy) => {
-                linked.clashing_rename(rename_strategy.tables);
-            }
-            ClashingExports::Signal => linked
-                .clashing_signal()
-                .map_err(|_| Error::ExportNameClash)?,
-        }
+        keep_retriever: KeepRetriever<Kind>,
+        rename_retriever: RenameRetriever<Kind>,
+    ) -> Result<MergeStrategy<Kind, Type, Index, LocalData>, Error>
+    where
+        Index: Clone + Eq + Hash,
+        Kind: Clone + Eq + Hash,
+        Type: Clone + Eq + Hash,
+        LocalData: Clone + Eq + Hash,
+    {
+        let mut linked = resolver.link_nodes().map_err(|_| Error::ImportCycle)?;
 
         match &merge_options.link_type_mismatch {
             LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
@@ -347,74 +353,35 @@ impl Resolver {
                 .map_err(|_| Error::TypeMismatch)?,
         }
 
-        let reduced_dependencies = linked
-            .reduce_dependencies(merge_options.keep_exports.as_ref().map(KeepExports::tables));
+        let keeper = merge_options.keep_exports.as_ref().map(keep_retriever);
+        let ReducedDependencies {
+            reduction_map,
+            remaining_imports,
+            remaining_exports,
+            clashing_exports,
+        } = linked.reduce_dependencies(keeper);
 
-        Ok(reduced_dependencies)
-    }
-
-    fn resolve_memories(
-        memories: GraphResolver<Memory, (), OldIdMemory, ()>,
-        merge_options: &MergeOptions,
-    ) -> Result<ReducedDependencies<Memory, (), OldIdMemory, ()>, Error> {
-        let mut linked = memories.link_nodes().map_err(|_| Error::ImportCycle)?;
-
+        let mut renames = Map::new();
         match &merge_options.clashing_exports {
             ClashingExports::Rename(rename_strategy) => {
-                linked.clashing_rename(rename_strategy.memories);
+                let renamer = rename_retriever(rename_strategy);
+                for clash in clashing_exports {
+                    let renamed = renamer(&clash.module, clash.name.clone());
+                    renames.insert(clash, renamed);
+                }
             }
-            ClashingExports::Signal => linked
-                .clashing_signal()
-                .map_err(|_| Error::ExportNameClash)?,
-        }
-
-        // Memory types are (), so type checking is trivial
-        match &merge_options.link_type_mismatch {
-            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
-            LinkTypeMismatch::Signal => linked
-                .type_check_mismatch_signal()
-                .map_err(|_| Error::TypeMismatch)?,
-        }
-
-        let reduced_dependencies = linked.reduce_dependencies(
-            merge_options
-                .keep_exports
-                .as_ref()
-                .map(KeepExports::memories),
-        );
-
-        Ok(reduced_dependencies)
-    }
-
-    fn resolve_globals(
-        globals: GraphResolver<Global, ValType, OldIdGlobal, ()>,
-        merge_options: &MergeOptions,
-    ) -> Result<ReducedDependencies<Global, ValType, OldIdGlobal, ()>, Error> {
-        let mut linked = globals.link_nodes().map_err(|_| Error::ImportCycle)?;
-
-        match &merge_options.clashing_exports {
-            ClashingExports::Rename(rename_strategy) => {
-                linked.clashing_rename(rename_strategy.globals);
+            ClashingExports::Signal => {
+                if !clashing_exports.is_empty() {
+                    return Err(Error::ExportNameClash);
+                }
             }
-            ClashingExports::Signal => linked
-                .clashing_signal()
-                .map_err(|_| Error::ExportNameClash)?,
         }
 
-        match &merge_options.link_type_mismatch {
-            LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
-            LinkTypeMismatch::Signal => linked
-                .type_check_mismatch_signal()
-                .map_err(|_| Error::TypeMismatch)?,
-        }
-
-        let reduced_dependencies = linked.reduce_dependencies(
-            merge_options
-                .keep_exports
-                .as_ref()
-                .map(KeepExports::globals),
-        );
-
-        Ok(reduced_dependencies)
+        Ok(MergeStrategy {
+            reduction_map,
+            remaining_imports,
+            remaining_exports,
+            renames,
+        })
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap as Map;
+use std::collections::{HashMap as Map, HashSet as Set};
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -9,6 +9,7 @@ use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoNodeReferences};
 
 use crate::kinds::{IdentifierItem, IdentifierModule};
+use crate::merge_options::ExportIdentifier;
 
 pub(crate) mod dependency_reduction;
 
@@ -215,21 +216,6 @@ pub(crate) mod error {
     /// Would result in a `Set { A:f:i32 -> { B:f:i64, C:f:f64 } }`.
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct TypeMismatch; // TODO: type mismatch should report conflicting types
-
-    /// Name Clashes
-    ///
-    /// Eg.
-    /// ```wat
-    /// (module "A" (export "f")) ;; (a)
-    /// (module "B" (export "f")) ;; (b)
-    /// ;; ==>
-    /// (module "M" (export "f")) ;; (a) or (b) ?
-    /// ```
-    ///
-    /// If no other module imports "f", then M
-    /// Would result in a `Map { "f" -> { A:f, B:f } }`.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub(crate) struct ExportNameClash; // TODO: clashing names should be reported + module
 }
 
 struct Link {
@@ -343,16 +329,13 @@ where
                 })?;
         }
 
-        Ok(Linked {
-            graph: self.graph.into_inner(),
-        })
+        Ok(Linked { graph: self.graph })
     }
 }
 
-// TODO: can I turn this into an acyclic graph?
 #[derive(Debug, Clone)]
 pub(crate) struct Linked<Kind, Type, Index, LocalData> {
-    graph: Graph<Node<Kind, Type, Index, LocalData>, Edge, petgraph::Directed>,
+    graph: AcyclicDependencyGraph<Kind, Type, Index, LocalData>,
 }
 
 struct Mismatch {
@@ -424,48 +407,38 @@ impl<Kind, Type: Eq, Index, LocalData> Linked<Kind, Type, Index, LocalData> {
 impl<Kind, Type, Index, LocalData> Linked<Kind, Type, Index, LocalData>
 where
     Kind: Hash + Eq + Clone,
+    Type: Hash + Eq + Clone,
+    Index: Hash + Eq + Clone,
+    LocalData: Hash + Eq + Clone,
 {
-    fn clashes(&self) -> Map<IdentifierItem<Kind>, Vec<NodeIndex>> {
-        let mut exports: Map<IdentifierItem<Kind>, Vec<NodeIndex>> = Map::new();
+    pub(crate) fn clashes(&self) -> Set<ExportIdentifier<IdentifierItem<Kind>>> {
+        let mut exports: Map<IdentifierItem<Kind>, Vec<Export<Kind, Type, Index>>> = Map::new();
         for (index, node) in self.graph.node_references() {
-            if let Some(export_identifier) = node.as_export().map(Export::identifier) {
+            let _ = index; // Index becomes irrelevant
+            if let Some(export) = node.as_export() {
                 exports
-                    .entry(export_identifier.clone())
+                    .entry(export.identifier.clone())
                     .or_default()
-                    .push(index);
-            }
-        }
-        exports.retain(|_, export| export.len() > 1);
-        exports
-    }
-
-    pub(crate) fn clashing_rename(
-        &mut self,
-        rename_strategy: fn(&IdentifierModule, IdentifierItem<Kind>) -> IdentifierItem<Kind>,
-    ) {
-        let clashes = self.clashes();
-
-        for (name, node_indices) in clashes {
-            for node_index in node_indices {
-                let node = self.graph.node_weight_mut(node_index).unwrap();
-                #[cfg(debug_assertions)]
-                debug_assert!(matches!(node, Node::Export(_)));
-
-                if let Node::Export(export) = node {
-                    let module = &export.module;
-                    export.identifier = rename_strategy(module, name.clone());
-                }
+                    .push((*export).clone());
             }
         }
 
-        #[cfg(debug_assertions)]
-        debug_assert!(self.clashes().is_empty());
-    }
-
-    pub(crate) fn clashing_signal(&self) -> Result<(), error::ExportNameClash> {
-        self.clashes()
-            .is_empty()
-            .then_some(())
-            .ok_or(error::ExportNameClash)
+        let mut result: Set<_> = Set::new();
+        for (identifier, exports) in exports {
+            // There must be at least one export given the pass above
+            debug_assert!(!exports.is_empty());
+            let _ = identifier;
+            if exports.len() == 1 {
+                continue;
+            }
+            let clashing_exports = exports;
+            for clashing_export in clashing_exports {
+                result.insert(ExportIdentifier {
+                    module: clashing_export.module.clone(),
+                    name: clashing_export.identifier.clone(),
+                });
+            }
+        }
+        result
     }
 }

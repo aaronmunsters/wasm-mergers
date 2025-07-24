@@ -28,6 +28,28 @@ pub struct RenameStrategy {
     pub globals: fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal,
 }
 
+impl RenameStrategy {
+    #[must_use]
+    pub fn functions(&self) -> &fn(&IdentifierModule, IdentifierFunction) -> IdentifierFunction {
+        &self.functions
+    }
+
+    #[must_use]
+    pub fn tables(&self) -> &fn(&IdentifierModule, IdentifierTable) -> IdentifierTable {
+        &self.tables
+    }
+
+    #[must_use]
+    pub fn memories(&self) -> &fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory {
+        &self.memories
+    }
+
+    #[must_use]
+    pub fn globals(&self) -> &fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal {
+        &self.globals
+    }
+}
+
 #[derive(Debug, Default, Hash, Clone)]
 pub enum ClashingExports {
     Rename(RenameStrategy),
