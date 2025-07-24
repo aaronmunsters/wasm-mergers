@@ -13,6 +13,7 @@ use crate::merge_options::ExportIdentifier;
 
 pub(crate) mod dependency_reduction;
 
+// TODO: include provenance? Consider moving a Module::Import to this import?
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) struct Import<Kind, Type, Index> {
     pub(crate) exporting_module: IdentifierModule,

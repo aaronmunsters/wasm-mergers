@@ -69,6 +69,9 @@ impl AsMappingRef for Export<Function, FuncType, OldIdFunction> {
     }
 }
 
+// TODO: if two modules import from the same location, are they the same node
+//       in the graph? If not ... this should be explored!
+
 impl Merger {
     fn add_new_import(
         module: &mut Module,
