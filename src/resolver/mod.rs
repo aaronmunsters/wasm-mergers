@@ -97,7 +97,7 @@ impl<Kind, Type, Index> Export<Kind, Type, Index> {
 }
 
 #[rustfmt::skip]
-#[allow(unused)] // TODO: fix / remove
+// #[allow(unused)] // TODO: fix / remove
 pub(crate) mod instantiated {
     use super::*;
     

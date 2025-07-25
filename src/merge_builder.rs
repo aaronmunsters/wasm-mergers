@@ -26,10 +26,16 @@ pub(crate) struct Resolver {
     global: GraphResolver<Global, ValType, OldIdGlobal, ()>,
 }
 
+pub(crate) type ReducedDependenciesFunction =
+    ReducedDependencies<Function, FuncType, OldIdFunction, Locals>;
+
+pub(crate) type ReducedDependenciesTable /*. */ =
+    ReducedDependencies<Table, RefType, OldIdTable, ()>;
+
 #[derive(Debug, Clone)]
 pub(crate) struct AllReducedDependencies {
-    pub functions: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
-    pub tables: ReducedDependencies<Table, RefType, OldIdTable, ()>,
+    pub functions: ReducedDependenciesFunction,
+    pub tables: ReducedDependenciesTable,
     pub memories: ReducedDependencies<Memory, (), OldIdMemory, ()>,
     pub globals: ReducedDependencies<Global, ValType, OldIdGlobal, ()>,
 }
