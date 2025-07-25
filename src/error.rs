@@ -31,19 +31,4 @@ pub enum Error {
     /// Would result in a `Map { "f" -> { A:f, B:f } }`.
     #[error("Export Name Clash")]
     ExportNameClash, // TODO: clashing names should be reported + module
-    #[error("Duplicate name \"{0}\" export for same type: {1:?}")]
-    DuplicateNameExport(String, ExportKind),
-}
-
-/// An exported item.
-#[derive(Copy, Clone, Debug)]
-pub enum ExportKind {
-    /// An exported function.
-    Function,
-    /// An exported table.
-    Table,
-    /// An exported memory.
-    Memory,
-    /// An exported global.
-    Global,
 }
