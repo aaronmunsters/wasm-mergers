@@ -13,7 +13,7 @@ mod walrus_copy;
 
 use crate::error::Error;
 use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
-use crate::merge_builder::{AllReducedDependencies, AllResolved, RenameMap};
+use crate::merge_builder::AllResolved;
 use crate::merge_options::{IdentifierFunction, RenameStrategy};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::{Export, Import, Local, Node};
@@ -26,8 +26,7 @@ pub(crate) struct Merger {
     mapping: Mapping,
     names: Vec<(String, String)>,
     starts: Vec<FunctionId>,
-    reduced_dependencies: AllReducedDependencies,
-    rename_map: RenameMap,
+    all_resolved: AllResolved,
 }
 
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
@@ -187,8 +186,7 @@ impl Merger {
             mapping: new_mapping.clone(), // mapping,
             names: vec![],
             starts: vec![],
-            reduced_dependencies: all_resolved.all_reduced.clone(), // TODO: consider to join both in the same field?
-            rename_map: all_resolved.rename_map,
+            all_resolved,
         }
     }
 
@@ -435,7 +433,8 @@ impl Merger {
                     };
 
                     if self
-                        .reduced_dependencies
+                        .all_resolved
+                        .all_reduced
                         .functions
                         .remaining_imports
                         .contains(&import)
@@ -549,7 +548,8 @@ impl Merger {
                     };
 
                     if self
-                        .reduced_dependencies
+                        .all_resolved
+                        .all_reduced
                         .functions
                         .remaining_exports
                         .contains(&lookup_export)
@@ -586,12 +586,13 @@ impl Merger {
                         ty: new.element_ty,
                     };
                     let remaining = self
-                        .reduced_dependencies
+                        .all_resolved
+                        .all_reduced
                         .tables
                         .remaining_exports
                         .contains(old_export);
                     if remaining {
-                        let optionally_renamed = self.rename_map.rename_if_required(
+                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
                             Box::new((*old_export).clone()),
                             RenameStrategy::tables,
                         );
@@ -627,12 +628,13 @@ impl Merger {
                         ty: (),
                     };
                     let remaining = self
-                        .reduced_dependencies
+                        .all_resolved
+                        .all_reduced
                         .memories
                         .remaining_exports
                         .contains(old_export);
                     if remaining {
-                        let optionally_renamed = self.rename_map.rename_if_required(
+                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
                             Box::new((*old_export).clone()),
                             RenameStrategy::memories,
                         );
@@ -668,12 +670,13 @@ impl Merger {
                         ty: new.ty,
                     };
                     let remaining = self
-                        .reduced_dependencies
+                        .all_resolved
+                        .all_reduced
                         .globals
                         .remaining_exports
                         .contains(old_export);
                     if remaining {
-                        let optionally_renamed = self.rename_map.rename_if_required(
+                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
                             Box::new((*old_export).clone()),
                             RenameStrategy::globals,
                         );
