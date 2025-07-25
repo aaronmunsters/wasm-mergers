@@ -1,4 +1,4 @@
-use std::collections::{HashMap as Map, HashSet as Set};
+use std::collections::HashMap as Map;
 use std::fmt::Debug;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -7,10 +7,11 @@ use petgraph::acyclic::{Acyclic, AcyclicEdgeError};
 use petgraph::data::Build;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoNodeReferences};
+use walrus::{RefType, ValType};
 
-use crate::kinds::{IdentifierItem, IdentifierModule};
-use crate::merge_options::ExportIdentifier;
-
+use crate::kinds::{
+    FuncType, Function, Global, IdentifierItem, IdentifierModule, Locals, Memory, Table,
+};
 pub(crate) mod dependency_reduction;
 
 // TODO: include provenance? Consider moving a Module::Import to this import?
@@ -95,6 +96,77 @@ impl<Kind, Type, Index> Export<Kind, Type, Index> {
     }
 }
 
+#[rustfmt::skip]
+#[allow(unused)] // TODO: fix / remove
+pub(crate) mod instantiated {
+    use super::*;
+    
+    /* Instantiated Kinds, Types & Locals */
+
+    /* -- Kinds -- */
+    pub(crate) type KindFunction = Function;
+    pub(crate) type KindTable    = Table;
+    pub(crate) type KindMemory   = Memory;
+    pub(crate) type KindGlobal   = Global;
+
+    /* -- Types -- */
+    pub(crate) type TypeFunction = FuncType;
+    pub(crate) type TypeTable    = RefType;
+    pub(crate) type TypeMemory   = ();
+    pub(crate) type TypeGlobal   = ValType;
+
+    /* -- Locals -- */
+    pub(crate) type DataFunction = Locals;
+    pub(crate) type DataTable    = ();
+    pub(crate) type DataMemory   = ();
+    pub(crate) type DataGlobal   = ();
+
+    /* Instantiated Imports, Locals & Exports */
+
+    /* -- Imports -- */
+    pub(crate) type ImportFunction<Id> = Import<KindFunction, TypeFunction, Id>;
+    pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id>;
+    pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id>;
+    pub(crate) type ImportGlobal<Id>   = Import<KindGlobal,   TypeGlobal,   Id>;
+
+    /* -- Locals -- */
+    pub(crate) type LocalFunction<Id> = Local<KindFunction, TypeFunction, Id, DataFunction>;
+    pub(crate) type LocalTable<Id>    = Local<KindTable   , TypeTable   , Id, DataTable   >;
+    pub(crate) type LocalMemory<Id>   = Local<KindMemory  , TypeMemory  , Id, DataMemory  >;
+    pub(crate) type LocalGlobal<Id>   = Local<KindGlobal  , TypeGlobal  , Id, DataGlobal  >;
+
+    /* -- Exports -- */
+    pub(crate) type ExportFunction<Id> = Export<KindFunction, TypeFunction, Id>;
+    pub(crate) type ExportTable<Id>    = Export<KindTable   , TypeTable   , Id>;
+    pub(crate) type ExportMemory<Id>   = Export<KindMemory  , TypeMemory  , Id>;
+    pub(crate) type ExportGlobal<Id>   = Export<KindGlobal  , TypeGlobal  , Id>;
+}
+
+/* Unioned Imports, Locals, Exports */
+#[allow(unused)] // TODO: fix / remove
+pub(crate) enum UnionImports<Id> {
+    Function(instantiated::ImportFunction<Id>),
+    Table(instantiated::ImportTable<Id>),
+    Memory(instantiated::ImportMemory<Id>),
+    Global(instantiated::ImportGlobal<Id>),
+}
+
+#[allow(unused)] // TODO: fix / remove
+pub(crate) enum UnionLocals<Id> {
+    Function(instantiated::LocalFunction<Id>),
+    Table(instantiated::LocalTable<Id>),
+    Memory(instantiated::LocalMemory<Id>),
+    Global(instantiated::LocalGlobal<Id>),
+}
+
+#[allow(unused)] // TODO: fix / remove
+pub(crate) enum UnionExports<Id> {
+    Function(instantiated::ExportFunction<Id>),
+    Table(instantiated::ExportTable<Id>),
+    Memory(instantiated::ExportMemory<Id>),
+    Global(instantiated::ExportGlobal<Id>),
+}
+
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
 pub(crate) enum Node<Kind, Type, Index, LocalData> {
     Import(Import<Kind, Type, Index>),
@@ -107,13 +179,6 @@ impl<Kind, Type, Index, LocalData> Node<Kind, Type, Index, LocalData> {
         match self {
             Node::Local(local) => Some(local),
             Node::Import(_) | Node::Export(_) => None,
-        }
-    }
-
-    pub fn as_export(&self) -> Option<&Export<Kind, Type, Index>> {
-        match self {
-            Node::Export(export) => Some(export),
-            Node::Local(_) | Node::Import(_) => None,
         }
     }
 }
@@ -402,46 +467,5 @@ impl<Kind, Type: Eq, Index, LocalData> Linked<Kind, Type, Index, LocalData> {
             .is_empty()
             .then_some(())
             .ok_or(error::TypeMismatch)
-    }
-}
-
-impl<Kind, Type, Index, LocalData> Linked<Kind, Type, Index, LocalData>
-where
-    Kind: Hash + Eq + Clone,
-    Type: Hash + Eq + Clone,
-    Index: Hash + Eq + Clone,
-    LocalData: Hash + Eq + Clone,
-{
-    // FIXME: all export names should be unique.
-    //        ref: https://webassembly.github.io/spec/core/syntax/modules.html#exports
-    pub(crate) fn clashes(&self) -> Set<ExportIdentifier<IdentifierItem<Kind>>> {
-        let mut exports: Map<IdentifierItem<Kind>, Vec<Export<Kind, Type, Index>>> = Map::new();
-        for (index, node) in self.graph.node_references() {
-            let _ = index; // Index becomes irrelevant
-            if let Some(export) = node.as_export() {
-                exports
-                    .entry(export.identifier.clone())
-                    .or_default()
-                    .push((*export).clone());
-            }
-        }
-
-        let mut result: Set<_> = Set::new();
-        for (identifier, exports) in exports {
-            // There must be at least one export given the pass above
-            debug_assert!(!exports.is_empty());
-            let _ = identifier;
-            if exports.len() == 1 {
-                continue;
-            }
-            let clashing_exports = exports;
-            for clashing_export in clashing_exports {
-                result.insert(ExportIdentifier {
-                    module: clashing_export.module.clone(),
-                    name: clashing_export.identifier.clone(),
-                });
-            }
-        }
-        result
     }
 }

@@ -8,6 +8,8 @@ mod merger;
 mod named_module;
 mod resolver;
 
+use std::collections::HashMap;
+
 use error::Error;
 use merge_builder::Resolver;
 use merge_options::MergeOptions;
@@ -16,6 +18,16 @@ use merger::Merger;
 pub use merge_configuration::MergeConfiguration;
 pub use named_module::NamedBufferModule;
 pub use named_module::NamedModule;
+
+pub type ModuleName = String;
+pub type Name = String;
+pub type NewName = String;
+
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct MergedOutcome {
+    merged_module: Vec<u8>,
+    renames: Option<Renames>,
+}
 
 /// The methods that can be called from the public API
 impl<'a> MergeConfiguration<'a, &'a [u8]> {
@@ -39,7 +51,7 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
 
         // Next, with the given modules, resolve imports & exports
         let reduced_dependencies = resolver.resolve(&self.options)?;
-        let mut merged_builder = Merger::new(reduced_dependencies, self.options.clone());
+        let mut merged_builder = Merger::new(reduced_dependencies);
 
         // Next follows the second pass in which content is copied over
         for parsed_module in parsed_modules {
@@ -49,4 +61,12 @@ impl<'a> MergeConfiguration<'a, &'a [u8]> {
         // Build merged module
         Ok(merged_builder.build().emit_wasm())
     }
+}
+
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct Renames {
+    pub functions: HashMap<(ModuleName, Name), NewName>,
+    pub tables: HashMap<(ModuleName, Name), NewName>,
+    pub memories: HashMap<(ModuleName, Name), NewName>,
+    pub globals: HashMap<(ModuleName, Name), NewName>,
 }

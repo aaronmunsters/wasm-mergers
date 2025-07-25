@@ -2,9 +2,9 @@ use std::collections::{HashMap as Map, HashSet as Set};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use walrus::Module;
-use walrus::RefType;
-use walrus::ValType;
+use walrus::{FunctionId, Module, TableId};
+use walrus::{GlobalId, RefType};
+use walrus::{MemoryId, ValType};
 
 use crate::MergeOptions;
 use crate::error::Error;
@@ -16,20 +16,13 @@ use crate::kinds::IdentifierModule;
 use crate::kinds::Locals;
 use crate::kinds::Memory;
 use crate::kinds::Table;
-use crate::merge_options::ClashingExports;
-use crate::merge_options::ExportIdentifier;
-use crate::merge_options::KeepExports;
-use crate::merge_options::LinkTypeMismatch;
-use crate::merge_options::RenameStrategy;
-use crate::merger::old_to_new_mapping::OldIdFunction;
-use crate::merger::old_to_new_mapping::OldIdGlobal;
-use crate::merger::old_to_new_mapping::OldIdMemory;
-use crate::merger::old_to_new_mapping::OldIdTable;
-use crate::merger::provenance_identifier::Identifier;
-use crate::merger::provenance_identifier::Old;
+use crate::merge_options::{ClashingExports, ExportIdentifier, KeepExports, LinkTypeMismatch};
+use crate::merge_options::{DEFAULT_RENAMER, RenameStrategy};
+use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable};
+use crate::merger::provenance_identifier::{Identifier, Old};
 use crate::named_module::NamedParsedModule;
-use crate::resolver::dependency_reduction::{ReducedDependencies, ReductionMap};
-use crate::resolver::{Export, Import, Local, Resolver as GraphResolver};
+use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::{Export, Import, Local, Resolver as GraphResolver, instantiated};
 
 #[derive(Debug, Clone)]
 pub(crate) struct Resolver {
@@ -40,26 +33,11 @@ pub(crate) struct Resolver {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct AllMergeStrategies {
-    pub functions: MergeStrategy<Function, FuncType, OldIdFunction, Locals>,
-    pub tables: MergeStrategy<Table, RefType, OldIdTable, ()>,
-    pub memories: MergeStrategy<Memory, (), OldIdMemory, ()>,
-    pub globals: MergeStrategy<Global, ValType, OldIdGlobal, ()>,
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct MergeStrategy<Kind, Type, Index, LocalData> {
-    /// Maps each node to its reduction source (either a remaining import or a local)
-    pub(crate) reduction_map: ReductionMap<Kind, Type, Index, LocalData>,
-
-    /// The remaining imports that should be present after resolution
-    pub(crate) remaining_imports: Set<Import<Kind, Type, Index>>,
-
-    /// The remaining exports that should be present after resolution
-    pub(crate) remaining_exports: Set<Export<Kind, Type, Index>>,
-
-    /// The rename map
-    pub(crate) renames: Map<ExportIdentifier<IdentifierItem<Kind>>, IdentifierItem<Kind>>,
+pub(crate) struct AllReducedDependencies {
+    pub functions: ReducedDependencies<Function, FuncType, OldIdFunction, Locals>,
+    pub tables: ReducedDependencies<Table, RefType, OldIdTable, ()>,
+    pub memories: ReducedDependencies<Memory, (), OldIdMemory, ()>,
+    pub globals: ReducedDependencies<Global, ValType, OldIdGlobal, ()>,
 }
 
 type KeepRetriever<Kind> = fn(&KeepExports) -> &Set<ExportIdentifier<IdentifierItem<Kind>>>;
@@ -288,56 +266,60 @@ impl Resolver {
         Ok(())
     }
 
-    pub(crate) fn resolve(self, merge_options: &MergeOptions) -> Result<AllMergeStrategies, Error> {
-        let Self {
-            function: resolver_function,
-            table: resolver_table,
-            memory: resolver_memory,
-            global: resolver_global,
-        } = self;
+    pub(crate) fn resolve(self, merge_options: &MergeOptions) -> Result<AllResolved, Error> {
+        let all_reduced = AllReducedDependencies {
+            functions: Self::resolve_kind(self.function, merge_options, KeepExports::functions)?,
+            tables: Self::resolve_kind(self.table, merge_options, KeepExports::tables)?,
+            memories: Self::resolve_kind(self.memory, merge_options, KeepExports::memories)?,
+            globals: Self::resolve_kind(self.global, merge_options, KeepExports::globals)?,
+        };
 
-        let resolved_functions = Self::resolve_kind(
-            resolver_function,
-            merge_options,
-            KeepExports::functions,
-            RenameStrategy::functions,
-        )?;
+        let clashes_result = Self::identify_clashes(&all_reduced);
+        let rename_map = merge_options
+            .clashing_exports
+            .clone()
+            .handle(clashes_result)?;
 
-        let resolved_tables = Self::resolve_kind(
-            resolver_table,
-            merge_options,
-            KeepExports::tables,
-            RenameStrategy::tables,
-        )?;
-
-        let resolved_memories = Self::resolve_kind(
-            resolver_memory,
-            merge_options,
-            KeepExports::memories,
-            RenameStrategy::memories,
-        )?;
-
-        let resolved_globals = Self::resolve_kind(
-            resolver_global,
-            merge_options,
-            KeepExports::globals,
-            RenameStrategy::globals,
-        )?;
-
-        Ok(AllMergeStrategies {
-            functions: resolved_functions,
-            tables: resolved_tables,
-            memories: resolved_memories,
-            globals: resolved_globals,
+        Ok(AllResolved {
+            all_reduced,
+            rename_map,
         })
+    }
+
+    /// Identifies all name clashes, as all export names should be unique.
+    /// ref: https://webassembly.github.io/spec/core/syntax/modules.html#exports
+    fn identify_clashes(reduced_dependencies: &AllReducedDependencies) -> ClashesResult {
+        let mut module_exports: Map<String, Vec<ConcreteExport>> = Map::new();
+
+        let dependencies: &[Box<dyn CollectExports>] = &[
+            Box::new(&reduced_dependencies.functions),
+            Box::new(&reduced_dependencies.globals),
+            Box::new(&reduced_dependencies.memories),
+            Box::new(&reduced_dependencies.tables),
+        ];
+
+        for dependency in dependencies {
+            dependency.collect_into(&mut module_exports);
+        }
+
+        // Remove all non-clashes
+        module_exports.retain(|_, exports| {
+            debug_assert!(!exports.is_empty());
+            exports.len() > 1
+        });
+
+        if module_exports.is_empty() {
+            ClashesResult::None
+        } else {
+            ClashesResult::Some(module_exports)
+        }
     }
 
     fn resolve_kind<Kind, Type, Index, LocalData>(
         resolver: GraphResolver<Kind, Type, Index, LocalData>,
         merge_options: &MergeOptions,
         keep_retriever: KeepRetriever<Kind>,
-        rename_retriever: RenameRetriever<Kind>,
-    ) -> Result<MergeStrategy<Kind, Type, Index, LocalData>, Error>
+    ) -> Result<ReducedDependencies<Kind, Type, Index, LocalData>, Error>
     where
         Index: Clone + Eq + Hash,
         Kind: Clone + Eq + Hash,
@@ -354,34 +336,131 @@ impl Resolver {
         }
 
         let keeper = merge_options.keep_exports.as_ref().map(keep_retriever);
-        let ReducedDependencies {
-            reduction_map,
-            remaining_imports,
-            remaining_exports,
-            clashing_exports,
-        } = linked.reduce_dependencies(keeper);
+        Ok(linked.reduce_dependencies(keeper))
+    }
+}
 
-        let mut renames = Map::new();
-        match &merge_options.clashing_exports {
-            ClashingExports::Rename(rename_strategy) => {
-                let renamer = rename_retriever(rename_strategy);
-                for clash in clashing_exports {
-                    let renamed = renamer(&clash.module, clash.name.clone());
-                    renames.insert(clash, renamed);
-                }
-            }
-            ClashingExports::Signal => {
-                if !clashing_exports.is_empty() {
-                    return Err(Error::ExportNameClash);
-                }
+pub(crate) struct AllResolved {
+    pub(crate) all_reduced: AllReducedDependencies,
+    pub(crate) rename_map: RenameMap,
+}
+
+impl ClashingExports {
+    fn handle(self, clashes_result: ClashesResult) -> Result<RenameMap, Error> {
+        match (clashes_result, self) {
+            (ClashesResult::None, ClashingExports::Signal) => Ok(RenameMap::empty()),
+            (ClashesResult::None, ClashingExports::Rename(_)) => Ok(RenameMap::empty()),
+            (ClashesResult::Some(_), ClashingExports::Signal) => Err(Error::ExportNameClash),
+            (ClashesResult::Some(clashes_map), ClashingExports::Rename(rename_strategy)) => {
+                Ok(RenameMap::new(clashes_map, rename_strategy))
             }
         }
+    }
+}
 
-        Ok(MergeStrategy {
-            reduction_map,
-            remaining_imports,
-            remaining_exports,
-            renames,
-        })
+pub(crate) struct RenameMap {
+    pub(crate) clashes_map: ClashesMap,
+    pub(crate) rename_strategy: RenameStrategy,
+}
+
+impl RenameMap {
+    pub(crate) fn new(clashes_map: ClashesMap, rename_strategy: RenameStrategy) -> Self {
+        Self {
+            clashes_map,
+            rename_strategy,
+        }
+    }
+
+    pub(crate) fn empty() -> Self {
+        let clashes_map = ClashesMap::new();
+        let rename_strategy = DEFAULT_RENAMER; // ... unused anyway 🙈
+        Self {
+            clashes_map,
+            rename_strategy,
+        }
+    }
+
+    /// If the `old_export` will be exported, then optionally provide a new name
+    pub(crate) fn rename_if_required<Kind, Type, Index>(
+        &self,
+        old_export: Box<Export<Kind, Type, Index>>,
+        rename_fetcher: RenameRetriever<Kind>,
+    ) -> Box<Export<Kind, Type, Index>>
+    where
+        Kind: Clone,
+        Type: Clone,
+        Index: Clone,
+    {
+        let clashes = self
+            .clashes_map
+            .contains_key(old_export.identifier().identifier());
+        if clashes {
+            let mut renamed_export = (*old_export).clone();
+            let renamer = rename_fetcher(&self.rename_strategy);
+            renamed_export.identifier =
+                renamer(renamed_export.module(), renamed_export.identifier.clone());
+            Box::new(renamed_export)
+        } else {
+            old_export
+        }
+    }
+}
+
+type ClashesMap = Map<String, Vec<ConcreteExport>>;
+
+#[derive(Debug)]
+enum ClashesResult {
+    None,
+    Some(ClashesMap),
+}
+
+#[derive(Debug)]
+pub(crate) enum ConcreteExport {
+    Function,
+    Global,
+    Memory,
+    Table,
+}
+
+trait CollectExports {
+    fn collect_into(&self, exports: &mut Map<String, Vec<ConcreteExport>>);
+}
+
+impl From<&instantiated::ExportFunction<Identifier<Old, FunctionId>>> for ConcreteExport {
+    fn from(_: &instantiated::ExportFunction<Identifier<Old, FunctionId>>) -> Self {
+        Self::Function
+    }
+}
+impl From<&instantiated::ExportGlobal<Identifier<Old, GlobalId>>> for ConcreteExport {
+    fn from(_: &instantiated::ExportGlobal<Identifier<Old, GlobalId>>) -> Self {
+        Self::Global
+    }
+}
+
+impl From<&instantiated::ExportMemory<Identifier<Old, MemoryId>>> for ConcreteExport {
+    fn from(_: &instantiated::ExportMemory<Identifier<Old, MemoryId>>) -> Self {
+        Self::Memory
+    }
+}
+
+impl From<&instantiated::ExportTable<Identifier<Old, TableId>>> for ConcreteExport {
+    fn from(_: &instantiated::ExportTable<Identifier<Old, TableId>>) -> Self {
+        Self::Table
+    }
+}
+
+impl<'a, Kind: 'a, Type: 'a, Index: 'a, LocalData: 'a> CollectExports
+    for &'a ReducedDependencies<Kind, Type, Index, LocalData>
+where
+    &'a Export<Kind, Type, Index>: Into<ConcreteExport>,
+{
+    fn collect_into(&self, exports: &mut Map<String, Vec<ConcreteExport>>) {
+        for remaining_export in self.remaining_exports.iter() {
+            let entry = exports
+                .entry(remaining_export.identifier().identifier().to_string())
+                .or_default();
+            let export: ConcreteExport = remaining_export.into();
+            entry.push(export);
+        }
     }
 }

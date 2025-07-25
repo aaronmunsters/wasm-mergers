@@ -22,9 +22,6 @@ pub(crate) struct ReducedDependencies<Kind, Type, Index, LocalData> {
 
     /// The remaining exports that should be present after resolution
     pub(crate) remaining_exports: Set<Export<Kind, Type, Index>>,
-
-    /// The clashing exports that should be renamed
-    pub(crate) clashing_exports: Set<ExportIdentifier<IdentifierItem<Kind>>>,
 }
 
 impl<Kind, Type, Index, LocalData> Linked<Kind, Type, Index, LocalData>
@@ -94,14 +91,10 @@ where
             reduction_map.insert(node_weight.clone(), source);
         }
 
-        // Step 3: Check for clashing exports
-        let clashing_exports = self.clashes();
-
         ReducedDependencies {
             reduction_map,
             remaining_imports,
             remaining_exports,
-            clashing_exports,
         }
     }
 
@@ -217,11 +210,9 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
         // Nothing should remain since export is backed by local
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert!(remaining_imports.is_empty(), "No imports should be present");
         assert!(remaining_exports.len() == 1, "Export should remain");
 
@@ -255,11 +246,9 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
         // All imports should remain since none have exports
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert_eq!(remaining_imports.len(), 3, "All imports should remain");
         assert!(remaining_exports.is_empty(), "No exports should be present");
 
@@ -296,11 +285,9 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
         // The import & export should remain
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert_eq!(remaining_imports.len(), 1, "Should have one import");
         assert_eq!(remaining_exports.len(), 1, "Export should remain local");
 
@@ -339,11 +326,9 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
         // Both should remain since there's no local to resolve them
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert_eq!(remaining_imports.len(), 1, "Import should remain");
         assert_eq!(remaining_exports.len(), 1, "Export should remain");
 
@@ -392,10 +377,8 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert_eq!(remaining_imports.len(), 1, "Unresolved import remains");
         assert_eq!(remaining_exports.len(), 3, "All exporst should remain");
 
@@ -436,10 +419,8 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert_eq!(remaining_imports.len(), 1, "One import should remain");
         assert_eq!(remaining_exports.len(), 2, "One export should remain");
 
@@ -486,11 +467,6 @@ mod dependency_tests {
         let linked = resolver.link_nodes().unwrap();
         linked.type_check_mismatch_signal().unwrap();
         let reduced_dependencies = linked.reduce_dependencies(None);
-
-        assert!(
-            reduced_dependencies.clashing_exports.is_empty(),
-            "No exports should clash"
-        );
 
         // Should have one external import and one external export
         assert_eq!(reduced_dependencies.remaining_imports.len(), 1);
@@ -573,11 +549,9 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
 
         // Everything should resolve since it traces back to C's local
-        assert!(clashing_exports.is_empty(), "No exports should clash");
         assert!(remaining_imports.is_empty(), "All imports should resolve");
         assert_eq!(remaining_exports.len(), 1, "The final export remains");
 
@@ -642,11 +616,6 @@ mod dependency_tests {
         let linked = resolver.link_nodes().unwrap();
         linked.type_check_mismatch_signal().unwrap();
         let reduced_dependencies = linked.reduce_dependencies(None);
-
-        assert!(
-            reduced_dependencies.clashing_exports.is_empty(),
-            "No exports should clash"
-        );
 
         // Verify the external boundary
         assert_eq!(reduced_dependencies.remaining_imports.len(), 1);
@@ -737,10 +706,7 @@ mod dependency_tests {
             remaining_imports,
             remaining_exports,
             reduction_map,
-            clashing_exports,
         } = linked.reduce_dependencies(None);
-
-        assert!(clashing_exports.is_empty(), "No exports should clash");
 
         // Both imports should be resolved since they eventually trace back to A's local
         assert!(
