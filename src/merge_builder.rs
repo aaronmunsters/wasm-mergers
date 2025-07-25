@@ -2,9 +2,9 @@ use std::collections::{HashMap as Map, HashSet as Set};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
-use walrus::{FunctionId, Module, TableId};
-use walrus::{GlobalId, RefType};
-use walrus::{MemoryId, ValType};
+use walrus::Module;
+use walrus::{FunctionId, GlobalId, MemoryId, TableId};
+use walrus::{RefType, ValType};
 
 use crate::MergeOptions;
 use crate::error::Error;
