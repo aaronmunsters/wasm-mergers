@@ -8,14 +8,8 @@ use walrus::{MemoryId, ValType};
 
 use crate::MergeOptions;
 use crate::error::Error;
-use crate::kinds::FuncType;
-use crate::kinds::Function;
-use crate::kinds::Global;
-use crate::kinds::IdentifierItem;
-use crate::kinds::IdentifierModule;
-use crate::kinds::Locals;
-use crate::kinds::Memory;
-use crate::kinds::Table;
+use crate::kinds::{FuncType, IdentifierItem, IdentifierModule, Locals};
+use crate::kinds::{Function, Global, Memory, Table};
 use crate::merge_options::{ClashingExports, ExportIdentifier, KeepExports, LinkTypeMismatch};
 use crate::merge_options::{DEFAULT_RENAMER, RenameStrategy};
 use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable};

@@ -1,6 +1,7 @@
 use std::collections::HashSet as Set;
 
-use crate::kinds::{Function, Global, IdentifierItem, IdentifierModule, Memory, Table};
+use crate::kinds::{Function, Global, Memory, Table};
+use crate::kinds::{IdentifierItem, IdentifierModule};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
 pub enum ResolvedExports {

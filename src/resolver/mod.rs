@@ -9,9 +9,9 @@ use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoNodeReferences};
 use walrus::{RefType, ValType};
 
-use crate::kinds::{
-    FuncType, Function, Global, IdentifierItem, IdentifierModule, Locals, Memory, Table,
-};
+use crate::kinds::{FuncType, IdentifierItem, IdentifierModule, Locals};
+use crate::kinds::{Function, Global, Memory, Table};
+
 pub(crate) mod dependency_reduction;
 
 // TODO: include provenance? Consider moving a Module::Import to this import?

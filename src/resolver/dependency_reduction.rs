@@ -6,8 +6,7 @@ use petgraph::{Direction, prelude::*, visit::IntoNodeReferences};
 
 use crate::kinds::IdentifierItem;
 use crate::merge_options::ExportIdentifier;
-
-use super::{Export, Import, Linked, Node};
+use crate::resolver::{Export, Import, Linked, Node};
 
 pub(crate) type ReductionMap<Kind, Type, Index, LocalData> =
     Map<Node<Kind, Type, Index, LocalData>, Node<Kind, Type, Index, LocalData>>;
