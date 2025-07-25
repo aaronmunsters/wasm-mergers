@@ -14,8 +14,8 @@ mod walrus_copy;
 use crate::error::Error;
 use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
 use crate::merge_builder::AllResolved;
-use crate::merge_builder::ReducedDependenciesFunction;
 use crate::merge_builder::RenameMap;
+use crate::merge_builder::builder_instantiated::ReducedDependenciesFunction;
 use crate::merge_options::{IdentifierFunction, RenameStrategy};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::{Export, Import, Node};
@@ -31,13 +31,14 @@ pub(crate) struct Merger {
     all_resolved: AllResolved,
 }
 
+type FunctionNode = Node<Function, FuncType, OldIdFunction, Locals>;
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
 
 trait AsMappingRef {
     fn to_mapping_ref(&self) -> OldFunctionRef;
 }
 
-impl AsMappingRef for Node<Function, FuncType, OldIdFunction, Locals> {
+impl AsMappingRef for FunctionNode {
     fn to_mapping_ref(&self) -> OldFunctionRef {
         match self {
             Node::Import(import) => import.to_mapping_ref(),
@@ -377,7 +378,7 @@ impl Merger {
                     let ty = funcs.get(*before_id).ty();
                     let ty = FuncType::from_types(ty, types);
 
-                    let import: Import<Function, FuncType, Identifier<Old, FunctionId>> = Import {
+                    let import = Import {
                         exporting_module: import.module.to_string().into(),
                         importing_module: module.name.to_string().into(),
                         exporting_identifier: import.name.to_string().into(),

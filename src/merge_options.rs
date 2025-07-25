@@ -67,62 +67,54 @@ pub enum LinkTypeMismatch {
 
 #[derive(Debug, Clone, Default)]
 pub struct KeepExports {
-    pub functions: Set<ExportIdentifier<IdentifierItem<Function>>>,
-    pub tables: Set<ExportIdentifier<IdentifierItem<Table>>>,
-    pub memories: Set<ExportIdentifier<IdentifierItem<Memory>>>,
-    pub globals: Set<ExportIdentifier<IdentifierItem<Global>>>,
+    pub functions: Set<ExportIdentifier<IdentifierFunction>>,
+    pub tables: Set<ExportIdentifier<IdentifierTable>>,
+    pub memories: Set<ExportIdentifier<IdentifierMemory>>,
+    pub globals: Set<ExportIdentifier<IdentifierGlobal>>,
 }
 
 impl KeepExports {
     #[must_use]
-    pub fn functions(&self) -> &Set<ExportIdentifier<IdentifierItem<Function>>> {
+    pub fn functions(&self) -> &Set<ExportIdentifier<IdentifierFunction>> {
         &self.functions
     }
 
     #[must_use]
-    pub fn tables(&self) -> &Set<ExportIdentifier<IdentifierItem<Table>>> {
+    pub fn tables(&self) -> &Set<ExportIdentifier<IdentifierTable>> {
         &self.tables
     }
 
     #[must_use]
-    pub fn memories(&self) -> &Set<ExportIdentifier<IdentifierItem<Memory>>> {
+    pub fn memories(&self) -> &Set<ExportIdentifier<IdentifierMemory>> {
         &self.memories
     }
 
     #[must_use]
-    pub fn globals(&self) -> &Set<ExportIdentifier<IdentifierItem<Global>>> {
+    pub fn globals(&self) -> &Set<ExportIdentifier<IdentifierGlobal>> {
         &self.globals
     }
 
     pub fn keep_function(&mut self, module: IdentifierModule, name: String) {
-        let identifier: ExportIdentifier<IdentifierItem<Function>> = ExportIdentifier {
-            module,
-            name: name.into(),
-        };
+        let name = name.into();
+        let identifier = ExportIdentifier { module, name };
         self.functions.insert(identifier);
     }
 
     pub fn keep_tables(&mut self, module: IdentifierModule, name: String) {
-        let identifier: ExportIdentifier<IdentifierItem<Table>> = ExportIdentifier {
-            module,
-            name: name.into(),
-        };
+        let name = name.into();
+        let identifier = ExportIdentifier { module, name };
         self.tables.insert(identifier);
     }
 
     pub fn keep_memory(&mut self, module: IdentifierModule, name: String) {
-        let identifier: ExportIdentifier<IdentifierItem<Memory>> = ExportIdentifier {
-            module,
-            name: name.into(),
-        };
+        let name = name.into();
+        let identifier = ExportIdentifier { module, name };
         self.memories.insert(identifier);
     }
 
     pub fn keep_globals(&mut self, module: IdentifierModule, name: String) {
-        let identifier: ExportIdentifier<IdentifierItem<Global>> = ExportIdentifier {
-            module,
-            name: name.into(),
-        };
+        let name = name.into();
+        let identifier = ExportIdentifier { module, name };
         self.globals.insert(identifier);
     }
 }
@@ -139,10 +131,10 @@ pub struct MergeOptions {
 /// items by joining the namespace with the export name with `:` inbetween.
 /// See [`default_rename`](default_rename).
 pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
-    functions: default_rename::<IdentifierFunction>,
-    tables: default_rename::<IdentifierTable>,
-    memories: default_rename::<IdentifierMemory>,
-    globals: default_rename::<IdentifierGlobal>,
+    functions: default_rename,
+    tables: default_rename,
+    memories: default_rename,
+    globals: default_rename,
 };
 
 /// Default rename strategy provided by this library is to rename duplicate

@@ -18,26 +18,37 @@ use crate::named_module::NamedParsedModule;
 use crate::resolver::dependency_reduction::ReducedDependencies;
 use crate::resolver::{Export, Import, Local, Resolver as GraphResolver, instantiated};
 
-#[derive(Debug, Clone)]
-pub(crate) struct Resolver {
-    function: GraphResolver<Function, FuncType, OldIdFunction, Locals>,
-    table: GraphResolver<Table, RefType, OldIdTable, ()>,
-    memory: GraphResolver<Memory, (), OldIdMemory, ()>,
-    global: GraphResolver<Global, ValType, OldIdGlobal, ()>,
+#[rustfmt::skip]
+pub(crate) mod builder_instantiated {
+    use super::*;
+
+    pub(crate) type ResolverFunction = GraphResolver<Function, FuncType, OldIdFunction, Locals>;
+    pub(crate) type ResolverTable = GraphResolver<Table, RefType, OldIdTable, ()>;
+    pub(crate) type ResolverMemory = GraphResolver<Memory, (), OldIdMemory, ()>;
+    pub(crate) type ResolverGlobal = GraphResolver<Global, ValType, OldIdGlobal, ()>;
+
+    pub(crate) type ReducedDependenciesFunction = ReducedDependencies<Function, FuncType, OldIdFunction, Locals>;
+    pub(crate) type ReducedDependenciesTable = ReducedDependencies<Table, RefType, OldIdTable, ()>;
+    pub(crate) type ReducedDependenciesMemory = ReducedDependencies<Memory, (), OldIdMemory, ()>;
+    pub(crate) type ReducedDependenciesGlobal = ReducedDependencies<Global, ValType, OldIdGlobal, ()>;
 }
 
-pub(crate) type ReducedDependenciesFunction =
-    ReducedDependencies<Function, FuncType, OldIdFunction, Locals>;
+use builder_instantiated::*;
 
-pub(crate) type ReducedDependenciesTable /*. */ =
-    ReducedDependencies<Table, RefType, OldIdTable, ()>;
+#[derive(Debug, Clone)]
+pub(crate) struct Resolver {
+    function: ResolverFunction,
+    table: ResolverTable,
+    memory: ResolverMemory,
+    global: ResolverGlobal,
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct AllReducedDependencies {
     pub functions: ReducedDependenciesFunction,
     pub tables: ReducedDependenciesTable,
-    pub memories: ReducedDependencies<Memory, (), OldIdMemory, ()>,
-    pub globals: ReducedDependencies<Global, ValType, OldIdGlobal, ()>,
+    pub memories: ReducedDependenciesMemory,
+    pub globals: ReducedDependenciesGlobal,
 }
 
 type KeepRetriever<Kind> = fn(&KeepExports) -> &Set<ExportIdentifier<IdentifierItem<Kind>>>;
