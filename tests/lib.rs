@@ -762,7 +762,7 @@ fn test() {
     }
 
     const MAX_SEED: u64 = 100;
-    const WINDOW_NAMES: &[&str] = &["a", "b", "c"];
+    const WINDOW_NAMES: &[&str] = &["a", "b", "c", "d"];
 
     let assertions: Vec<_> = (0..MAX_SEED)
         .into_par_iter()
@@ -852,7 +852,6 @@ fn test() {
         })
         .collect();
 
-    // TODO: Should become more than 1, to force merge
     let window_width: usize = WINDOW_NAMES.len();
     assertions.windows(window_width).for_each(|window| {
         let modules: Vec<_> = window.iter().zip(WINDOW_NAMES).collect();
@@ -916,3 +915,6 @@ fn test() {
         }
     });
 }
+
+// TODO: if two modules import from the same location, are they the same node
+//       in the graph? If not ... this should be explored!
