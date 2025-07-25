@@ -7,21 +7,18 @@ use walrus::Module;
 use walrus::{ConstExpr, ElementItems, ExportItem, FunctionBuilder, FunctionId};
 use walrus::{DataKind, ElementKind, FunctionKind, GlobalKind, ImportKind};
 
+pub(crate) mod old_to_new_mapping;
+pub(crate) mod provenance_identifier;
+mod walrus_copy;
+
 use crate::error::Error;
 use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
 use crate::merge_builder::{AllReducedDependencies, AllResolved, RenameMap};
 use crate::merge_options::{IdentifierFunction, RenameStrategy};
-use crate::merger::old_to_new_mapping::{NewIdFunction, OldIdFunction};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::{Export, Import, Local, Node};
 
-pub(crate) mod old_to_new_mapping;
-use old_to_new_mapping::Mapping;
-
-mod walrus_copy;
-use walrus_copy::WasmFunctionCopy;
-
-pub(crate) mod provenance_identifier;
+use old_to_new_mapping::{Mapping, NewIdFunction, OldIdFunction};
 use provenance_identifier::{Identifier, New, Old};
 
 pub(crate) struct Merger {
@@ -513,7 +510,7 @@ impl Merger {
                         .get(&(considering_module_name.clone(), old_function_index))
                         .unwrap();
 
-                    let mut visitor: WasmFunctionCopy<'_, '_> = WasmFunctionCopy::new(
+                    let mut visitor = walrus_copy::WasmFunctionCopy::new(
                         &considering_module,
                         &mut self.merged,
                         local_function,
