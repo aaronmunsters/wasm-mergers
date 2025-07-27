@@ -19,6 +19,16 @@ fn iter_permutations<'a>(
         .collect::<Vec<_>>()
 }
 
+fn assert_structural_diff(merged_manual: &[u8], merged_lib: &[u8], allowed_difference: f64) {
+    let merged_manual_len = merged_manual.len() as f64;
+    let merged_lib_len = merged_lib.len() as f64;
+    let ratio = merged_manual_len / merged_lib_len;
+    assert!(
+        (1.0 - allowed_difference..=1.0 + allowed_difference).contains(&ratio),
+        "Lengths differ by more than {allowed_difference}%: manual = {merged_manual_len}, lib = {merged_lib_len}",
+    );
+}
+
 /// Merging mutually recursive even and odd functions across modules
 ///
 /// Module Dependency Overview:
@@ -121,16 +131,8 @@ fn merge_even_odd() -> Result<(), Error> {
     };
 
     // Structural assertion
-    {
-        const RATIO_ALLOWED_DELTA: f64 = 0.30; // Expressed in %
-        let manual_merged_len = manual_merged.len() as f64;
-        let lib_merged_len = lib_merged.len() as f64;
-        let ratio = manual_merged_len / lib_merged_len;
-        assert!(
-            (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-            "Lengths differ by more than {RATIO_ALLOWED_DELTA}%: manual = {manual_merged_len}, lib = {lib_merged_len}",
-        );
-    }
+    const RATIO_ALLOWED_DELTA: f64 = 0.30; // Expressed in %
+    assert_structural_diff(&manual_merged, &lib_merged, RATIO_ALLOWED_DELTA);
 
     let r_even = |v| v % 2 == 0;
     let r_odd = |v| !(r_even(v));
@@ -312,16 +314,8 @@ fn merge_cycle_chain() -> Result<(), Error> {
         .chain(once(manual_merged.clone()))
     {
         // Structural assertion
-        {
-            const RATIO_ALLOWED_DELTA: f64 = 0.1; // Expressed in %
-            let manual_merged_len = manual_merged.len() as f64;
-            let lib_merged_len = merged_wasm.len() as f64;
-            let ratio = manual_merged_len / lib_merged_len;
-            assert!(
-                (1.0 - RATIO_ALLOWED_DELTA..=1.0 + RATIO_ALLOWED_DELTA).contains(&ratio),
-                "Lengths differ by more than {RATIO_ALLOWED_DELTA}%: manual = {manual_merged_len}, lib = {lib_merged_len}",
-            );
-        }
+        const RATIO_ALLOWED_DELTA: f64 = 0.1; // Expressed in %
+        assert_structural_diff(&manual_merged, &merged_wasm, RATIO_ALLOWED_DELTA);
 
         // Interpret even & odd
         let mut store = Store::<()>::default();
