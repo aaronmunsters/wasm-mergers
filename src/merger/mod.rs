@@ -533,7 +533,7 @@ impl Merger {
                         .unwrap();
                     let new = self.merged.tables.get(*new_id);
 
-                    let old_export = &Export {
+                    let mut old_export = Export {
                         module: considering_module_name.clone(),
                         identifier: export.name.clone().into(),
                         index: old_id,
@@ -545,14 +545,13 @@ impl Merger {
                         .all_reduced
                         .tables
                         .remaining_exports
-                        .contains(old_export);
+                        .contains(&old_export);
                     if remaining {
-                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
-                            Box::new((*old_export).clone()),
-                            RenameStrategy::tables,
-                        );
+                        self.all_resolved
+                            .rename_map
+                            .rename_if_required(&mut old_export, RenameStrategy::tables);
                         self.merged.exports.add(
-                            optionally_renamed.identifier().identifier(),
+                            old_export.identifier().identifier(),
                             ExportItem::Table(*new_id),
                         );
                     } else {
@@ -575,7 +574,7 @@ impl Merger {
                     let new = self.merged.memories.get(*new_id);
                     let _ = new; // its type is not used downstream
 
-                    let old_export = &Export {
+                    let mut old_export = Export {
                         module: considering_module_name.clone(),
                         identifier: export.name.clone().into(),
                         index: old_id,
@@ -587,14 +586,13 @@ impl Merger {
                         .all_reduced
                         .memories
                         .remaining_exports
-                        .contains(old_export);
+                        .contains(&old_export);
                     if remaining {
-                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
-                            Box::new((*old_export).clone()),
-                            RenameStrategy::memories,
-                        );
+                        self.all_resolved
+                            .rename_map
+                            .rename_if_required(&mut old_export, RenameStrategy::memories);
                         self.merged.exports.add(
-                            optionally_renamed.identifier().identifier(),
+                            old_export.identifier().identifier(),
                             ExportItem::Memory(*new_id),
                         );
                     } else {
@@ -617,7 +615,7 @@ impl Merger {
                         .unwrap();
                     let new = self.merged.globals.get(*new_id);
 
-                    let old_export = &Export {
+                    let mut old_export = Export {
                         module: considering_module_name.clone(),
                         identifier: export.name.clone().into(),
                         index: old_id,
@@ -629,14 +627,13 @@ impl Merger {
                         .all_reduced
                         .globals
                         .remaining_exports
-                        .contains(old_export);
+                        .contains(&old_export);
                     if remaining {
-                        let optionally_renamed = self.all_resolved.rename_map.rename_if_required(
-                            Box::new((*old_export).clone()),
-                            RenameStrategy::globals,
-                        );
+                        self.all_resolved
+                            .rename_map
+                            .rename_if_required(&mut old_export, RenameStrategy::globals);
                         self.merged.exports.add(
-                            optionally_renamed.identifier().identifier(),
+                            old_export.identifier().identifier(),
                             ExportItem::Global(*new_id),
                         );
                     } else {
@@ -748,7 +745,7 @@ trait MergedJoinable {
 impl MergedJoinable for ReducedDependenciesFunction {
     fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
         // 1. Include all remaining imports:
-        for old_import in self.remaining_imports.iter() {
+        for old_import in &self.remaining_imports {
             let new_import = Merger::add_new_import(module, old_import);
             mapping
                 .funcs
@@ -764,7 +761,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
                 mapping.funcs.insert(old_local.to_mapping_ref(), new_local);
             });
 
-        for (node, reduced) in self.reduction_map.iter() {
+        for (node, reduced) in &self.reduction_map {
             // Find location of reduced node:
             let reduced = mapping.funcs.get(&reduced.to_mapping_ref()).copied();
 
@@ -778,11 +775,11 @@ impl MergedJoinable for ReducedDependenciesFunction {
             }
         }
 
-        for old_export in self.remaining_exports.iter() {
+        for old_export in &self.remaining_exports {
             let reduced = mapping.funcs.get(&old_export.to_mapping_ref());
 
-            let optionally_renamed = rename_map
-                .rename_if_required(Box::new((*old_export).clone()), RenameStrategy::functions);
+            let mut old_export = old_export.clone();
+            rename_map.rename_if_required(&mut old_export, RenameStrategy::functions);
 
             // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
             // The reduced should be present in the new mapping
@@ -791,7 +788,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
 
             // Inject pointer from old to new
             if let Some(reduced) = reduced {
-                Merger::add_new_export(module, optionally_renamed.identifier(), *reduced);
+                Merger::add_new_export(module, old_export.identifier(), *reduced);
             }
         }
     }

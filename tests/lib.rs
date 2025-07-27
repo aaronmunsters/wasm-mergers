@@ -131,8 +131,8 @@ fn merge_even_odd() -> Result<(), Error> {
     };
 
     // Structural assertion
-    const RATIO_ALLOWED_DELTA: f64 = 0.30; // Expressed in %
-    assert_structural_diff(&manual_merged, &lib_merged, RATIO_ALLOWED_DELTA);
+    let ratio_allowed_delta: f64 = 0.30; // Expressed in %
+    assert_structural_diff(&manual_merged, &lib_merged, ratio_allowed_delta);
 
     let r_even = |v| v % 2 == 0;
     let r_odd = |v| !(r_even(v));
@@ -314,8 +314,8 @@ fn merge_cycle_chain() -> Result<(), Error> {
         .chain(once(manual_merged.clone()))
     {
         // Structural assertion
-        const RATIO_ALLOWED_DELTA: f64 = 0.1; // Expressed in %
-        assert_structural_diff(&manual_merged, &merged_wasm, RATIO_ALLOWED_DELTA);
+        let ratio_allowed_delta: f64 = 0.1; // Expressed in %
+        assert_structural_diff(&manual_merged, &merged_wasm, ratio_allowed_delta);
 
         // Interpret even & odd
         let mut store = Store::<()>::default();

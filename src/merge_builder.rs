@@ -298,7 +298,7 @@ impl Resolver {
     }
 
     /// Identifies all name clashes, as all export names should be unique.
-    /// ref: https://webassembly.github.io/spec/core/syntax/modules.html#exports
+    /// ref: <https://webassembly.github.io/spec/core/syntax/modules.html#exports>
     fn identify_clashes(reduced_dependencies: &AllReducedDependencies) -> ClashesResult {
         let mut module_exports: Map<String, Vec<ConcreteExport>> = Map::new();
 
@@ -359,8 +359,7 @@ pub(crate) struct AllResolved {
 impl ClashingExports {
     fn handle(self, clashes_result: ClashesResult) -> Result<RenameMap, Error> {
         match (clashes_result, self) {
-            (ClashesResult::None, ClashingExports::Signal) => Ok(RenameMap::empty()),
-            (ClashesResult::None, ClashingExports::Rename(_)) => Ok(RenameMap::empty()),
+            (ClashesResult::None, _) => Ok(RenameMap::empty()),
             (ClashesResult::Some(_), ClashingExports::Signal) => Err(Error::ExportNameClash),
             (ClashesResult::Some(clashes_map), ClashingExports::Rename(rename_strategy)) => {
                 Ok(RenameMap::new(clashes_map, rename_strategy))
@@ -392,27 +391,17 @@ impl RenameMap {
     }
 
     /// If the `old_export` will be exported, then optionally provide a new name
-    pub(crate) fn rename_if_required<Kind, Type, Index>(
+    pub(crate) fn rename_if_required<Kind: Clone, Type, Index>(
         &self,
-        old_export: Box<Export<Kind, Type, Index>>,
+        old_export: &mut Export<Kind, Type, Index>,
         rename_fetcher: RenameRetriever<Kind>,
-    ) -> Box<Export<Kind, Type, Index>>
-    where
-        Kind: Clone,
-        Type: Clone,
-        Index: Clone,
-    {
+    ) {
         let clashes = self
             .clashes_map
             .contains_key(old_export.identifier().identifier());
         if clashes {
-            let mut renamed_export = (*old_export).clone();
             let renamer = rename_fetcher(&self.rename_strategy);
-            renamed_export.identifier =
-                renamer(renamed_export.module(), renamed_export.identifier.clone());
-            Box::new(renamed_export)
-        } else {
-            old_export
+            old_export.identifier = renamer(old_export.module(), old_export.identifier.clone());
         }
     }
 }
@@ -466,7 +455,7 @@ where
     &'a Export<Kind, Type, Index>: Into<ConcreteExport>,
 {
     fn collect_into(&self, exports: &mut Map<String, Vec<ConcreteExport>>) {
-        for remaining_export in self.remaining_exports.iter() {
+        for remaining_export in &self.remaining_exports {
             let entry = exports
                 .entry(remaining_export.identifier().identifier().to_string())
                 .or_default();
