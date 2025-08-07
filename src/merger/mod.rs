@@ -12,12 +12,18 @@ pub(crate) mod provenance_identifier;
 mod walrus_copy;
 
 use crate::error::Error;
-use crate::kinds::{FuncType, Function, IdentifierModule, Locals};
+use crate::kinds::{FuncType, Function, IdentifierModule};
 use crate::merge_builder::AllResolved;
 use crate::merge_builder::RenameMap;
 use crate::merge_builder::builder_instantiated::ReducedDependenciesFunction;
+use crate::merge_builder::builder_instantiated::ReducedDependenciesGlobal;
 use crate::merge_options::{IdentifierFunction, RenameStrategy};
+use crate::merger::old_to_new_mapping::NewIdGlobal;
+use crate::merger::old_to_new_mapping::OldIdGlobal;
 use crate::named_module::NamedParsedModule;
+use crate::resolver::instantiated::ImportDataFunction;
+use crate::resolver::instantiated::ImportGlobal;
+use crate::resolver::instantiated::LocalDataFunction;
 use crate::resolver::{Export, Import, Node};
 
 use old_to_new_mapping::{Mapping, NewIdFunction, OldIdFunction};
@@ -31,7 +37,7 @@ pub(crate) struct Merger {
     all_resolved: AllResolved,
 }
 
-type FunctionNode = Node<Function, FuncType, OldIdFunction, Locals>;
+type FunctionNode = Node<Function, FuncType, OldIdFunction, ImportDataFunction, LocalDataFunction>;
 type OldFunctionRef = (IdentifierModule, OldIdFunction);
 
 trait AsMappingRef {
@@ -72,7 +78,7 @@ impl AsMappingRef for ExportFunction<OldIdFunction> {
 }
 
 impl Merger {
-    fn add_new_import(
+    fn add_new_function_import(
         module: &mut Module,
         old_import: &ImportFunction<OldIdFunction>,
     ) -> NewIdFunction {
@@ -84,6 +90,25 @@ impl Merger {
         let new_id_function: NewIdFunction = new_id_function.into();
         let _ = new_id_import; // The particular ID is not relevant post merge
         new_id_function
+    }
+
+    fn add_new_global_import(
+        module: &mut Module,
+        old_import: &ImportGlobal<OldIdGlobal>,
+    ) -> NewIdGlobal {
+        // Standard data:
+        let module_identifier = old_import.exporting_module().identifier();
+        let name = old_import.exporting_identifier().identifier();
+        // Specific data:
+        let ty = *old_import.ty();
+        let mutable = old_import.mutable();
+        let shared = old_import.shared();
+        let (new_id, new_id_import) =
+            module.add_import_global(module_identifier, name, ty, mutable, shared);
+        // Consider it as a new id
+        let new_id = new_id.into();
+        let _ = new_id_import; // The particular ID is not relevant post merge
+        new_id
     }
 
     fn add_new_local(
@@ -127,13 +152,17 @@ impl Merger {
         let mut merged = Module::default();
         let mut mapping = Mapping::default();
 
-        let _ = resolved.all_reduced.globals; // TODO: cover in this pass
         let _ = resolved.all_reduced.memories; // TODO: cover in this pass
         let _ = resolved.all_reduced.tables; // TODO: cover in this pass
 
         resolved
             .all_reduced
             .functions
+            .join(&mut merged, &mut mapping, &resolved.rename_map);
+
+        resolved
+            .all_reduced
+            .globals
             .join(&mut merged, &mut mapping, &resolved.rename_map);
 
         Self {
@@ -385,6 +414,7 @@ impl Merger {
                         imported_index: Identifier::<Old, _>::from(*before_id),
                         kind: PhantomData,
                         ty,
+                        data: ImportDataFunction,
                     };
 
                     if self
@@ -746,7 +776,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
     fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
         // 1. Include all remaining imports:
         for old_import in &self.remaining_imports {
-            let new_import = Merger::add_new_import(module, old_import);
+            let new_import = Merger::add_new_function_import(module, old_import);
             mapping
                 .funcs
                 .insert(old_import.to_mapping_ref(), new_import);
@@ -791,6 +821,61 @@ impl MergedJoinable for ReducedDependenciesFunction {
                 Merger::add_new_export(module, old_export.identifier(), *reduced);
             }
         }
+    }
+}
+
+impl MergedJoinable for ReducedDependenciesGlobal {
+    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
+        // 1. Include all remaining imports:
+        for old_import in &self.remaining_imports {
+            let new_import = Merger::add_new_global_import(module, old_import);
+            let _ = new_import; // TODO: ...
+            let _ = mapping; // TODO: ...
+            let _ = rename_map; // TODO: ...
+            // mapping
+            //     .funcs
+            //     .insert(old_import.to_mapping_ref(), new_import);
+        }
+
+        // // 2. Include all locals:
+        // self.reduction_map
+        //     .keys()
+        //     .filter_map(|node| node.as_local())
+        //     .for_each(|old_local| {
+        //         let new_local = Merger::add_new_local(module, mapping, old_local);
+        //         mapping.funcs.insert(old_local.to_mapping_ref(), new_local);
+        //     });
+
+        // for (node, reduced) in &self.reduction_map {
+        //     // Find location of reduced node:
+        //     let reduced = mapping.funcs.get(&reduced.to_mapping_ref()).copied();
+
+        //     // The reduced should be present in the new mapping
+        //     #[cfg(debug_assertions)]
+        //     debug_assert!(reduced.is_some());
+
+        //     // Inject pointer from old to new
+        //     if let Some(reduced) = reduced {
+        //         mapping.funcs.insert(node.to_mapping_ref(), reduced);
+        //     }
+        // }
+
+        // for old_export in &self.remaining_exports {
+        //     let reduced = mapping.funcs.get(&old_export.to_mapping_ref());
+
+        //     let mut old_export = old_export.clone();
+        //     rename_map.rename_if_required(&mut old_export, RenameStrategy::functions);
+
+        //     // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
+        //     // The reduced should be present in the new mapping
+        //     #[cfg(debug_assertions)]
+        //     debug_assert!(reduced.is_some());
+
+        //     // Inject pointer from old to new
+        //     if let Some(reduced) = reduced {
+        //         Merger::add_new_export(module, old_export.identifier(), *reduced);
+        //     }
+        // }
     }
 }
 

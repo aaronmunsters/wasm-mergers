@@ -16,16 +16,17 @@ pub(crate) mod dependency_reduction;
 
 // TODO: include provenance? Consider moving a Module::Import to this import?
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub(crate) struct Import<Kind, Type, Index> {
+pub(crate) struct Import<Kind, Type, Index, ImportData> {
     pub(crate) exporting_module: IdentifierModule,
     pub(crate) importing_module: IdentifierModule,
     pub(crate) exporting_identifier: IdentifierItem<Kind>,
     pub(crate) imported_index: Index,
     pub(crate) kind: PhantomData<Kind>,
     pub(crate) ty: Type,
+    pub(crate) data: ImportData,
 }
 
-impl<Kind, Type, Index> Import<Kind, Type, Index> {
+impl<Kind, Type, Index, ImportData> Import<Kind, Type, Index, ImportData> {
     pub(crate) fn exporting_module(&self) -> &IdentifierModule {
         &self.exporting_module
     }
@@ -115,31 +116,56 @@ pub(crate) mod instantiated {
     pub(crate) type TypeMemory   = ();
     pub(crate) type TypeGlobal   = ValType;
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub(crate) struct ImportDataFunction;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub(crate) struct ImportDataTable;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub(crate) struct ImportDataMemory;
+
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub(crate) struct ImportDataGlobal {
+        pub(crate) mutable: bool,
+        pub(crate) shared: bool,
+    }
+
     /* -- Locals -- */
-    pub(crate) type DataFunction = Locals;
-    pub(crate) type DataTable    = ();
-    pub(crate) type DataMemory   = ();
-    pub(crate) type DataGlobal   = ();
+    pub(crate) type LocalDataFunction = Locals;
+    pub(crate) type LocalDataTable    = ();
+    pub(crate) type LocalDataMemory   = ();
+    pub(crate) type LocalDataGlobal   = ();
 
     /* Instantiated Imports, Locals & Exports */
 
     /* -- Imports -- */
-    pub(crate) type ImportFunction<Id> = Import<KindFunction, TypeFunction, Id>;
-    pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id>;
-    pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id>;
-    pub(crate) type ImportGlobal<Id>   = Import<KindGlobal,   TypeGlobal,   Id>;
+    pub(crate) type ImportFunction<Id> = Import<KindFunction, TypeFunction, Id, ImportDataFunction>;
+    pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id, ImportDataTable   >;
+    pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id, ImportDataMemory  >;
+    pub(crate) type ImportGlobal<Id>   = Import<KindGlobal,   TypeGlobal,   Id, ImportDataGlobal  >;
 
     /* -- Locals -- */
-    pub(crate) type LocalFunction<Id> = Local<KindFunction, TypeFunction, Id, DataFunction>;
-    pub(crate) type LocalTable<Id>    = Local<KindTable   , TypeTable   , Id, DataTable   >;
-    pub(crate) type LocalMemory<Id>   = Local<KindMemory  , TypeMemory  , Id, DataMemory  >;
-    pub(crate) type LocalGlobal<Id>   = Local<KindGlobal  , TypeGlobal  , Id, DataGlobal  >;
+    pub(crate) type LocalFunction<Id> = Local<KindFunction, TypeFunction, Id, LocalDataFunction>;
+    pub(crate) type LocalTable<Id>    = Local<KindTable   , TypeTable   , Id, LocalDataTable   >;
+    pub(crate) type LocalMemory<Id>   = Local<KindMemory  , TypeMemory  , Id, LocalDataMemory  >;
+    pub(crate) type LocalGlobal<Id>   = Local<KindGlobal  , TypeGlobal  , Id, LocalDataGlobal  >;
 
     /* -- Exports -- */
     pub(crate) type ExportFunction<Id> = Export<KindFunction, TypeFunction, Id>;
     pub(crate) type ExportTable<Id>    = Export<KindTable   , TypeTable   , Id>;
     pub(crate) type ExportMemory<Id>   = Export<KindMemory  , TypeMemory  , Id>;
     pub(crate) type ExportGlobal<Id>   = Export<KindGlobal  , TypeGlobal  , Id>;
+}
+
+impl<Id> instantiated::ImportGlobal<Id> {
+    pub(crate) fn mutable(&self) -> bool {
+        self.data.mutable
+    }
+
+    pub(crate) fn shared(&self) -> bool {
+        self.data.shared
+    }
 }
 
 /* Unioned Imports, Locals, Exports */
@@ -168,13 +194,13 @@ pub(crate) enum UnionExports<Id> {
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
-pub(crate) enum Node<Kind, Type, Index, LocalData> {
-    Import(Import<Kind, Type, Index>),
+pub(crate) enum Node<Kind, Type, Index, ImportData, LocalData> {
+    Import(Import<Kind, Type, Index, ImportData>),
     Local(Local<Kind, Type, Index, LocalData>),
     Export(Export<Kind, Type, Index>),
 }
 
-impl<Kind, Type, Index, LocalData> Node<Kind, Type, Index, LocalData> {
+impl<Kind, Type, Index, ImportData, LocalData> Node<Kind, Type, Index, ImportData, LocalData> {
     pub fn as_local(&self) -> Option<&Local<Kind, Type, Index, LocalData>> {
         match self {
             Node::Local(local) => Some(local),
@@ -183,7 +209,7 @@ impl<Kind, Type, Index, LocalData> Node<Kind, Type, Index, LocalData> {
     }
 }
 
-impl<Kind, Type, Index, LocalData> Node<Kind, Type, Index, LocalData> {
+impl<Kind, Type, Index, ImportData, LocalData> Node<Kind, Type, Index, ImportData, LocalData> {
     fn ty_(&self) -> &Type {
         match self {
             Node::Import(import) => &import.ty,
@@ -247,12 +273,12 @@ where
     }
 }
 
-type AcyclicDependencyGraph<Kind, Type, Index, LocalData> =
-    Acyclic<Graph<Node<Kind, Type, Index, LocalData>, Edge, petgraph::Directed>>;
+type AcyclicDependencyGraph<Kind, Type, Index, ImportData, LocalData> =
+    Acyclic<Graph<Node<Kind, Type, Index, ImportData, LocalData>, Edge, petgraph::Directed>>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct Resolver<Kind, Type, Index, LocalData> {
-    graph: AcyclicDependencyGraph<Kind, Type, Index, LocalData>,
+pub(crate) struct Resolver<Kind, Type, Index, ImportData, LocalData> {
+    graph: AcyclicDependencyGraph<Kind, Type, Index, ImportData, LocalData>,
     ref_map: Map<IdentifierModule, ModuleReferences<Kind, Index>>,
 }
 
@@ -290,7 +316,7 @@ struct Link {
     edge: Edge,
 }
 
-impl<Kind, Type, Index, LocalData> Resolver<Kind, Type, Index, LocalData>
+impl<Kind, Type, Index, ImportData, LocalData> Resolver<Kind, Type, Index, ImportData, LocalData>
 where
     Index: Clone + Eq + Hash,
     Kind: Clone + Eq + Hash,
@@ -310,7 +336,7 @@ where
             .or_insert_with(ModuleReferences::new)
     }
 
-    pub(crate) fn add_import(&mut self, import: Import<Kind, Type, Index>) {
+    pub(crate) fn add_import(&mut self, import: Import<Kind, Type, Index, ImportData>) {
         let index = import.imported_index.clone();
         let module = import.importing_module.clone();
         let node_index = self.graph.add_node(Node::Import(import));
@@ -383,7 +409,9 @@ where
         links
     }
 
-    pub fn link_nodes(mut self) -> Result<Linked<Kind, Type, Index, LocalData>, error::Cycles> {
+    pub fn link_nodes(
+        mut self,
+    ) -> Result<Linked<Kind, Type, Index, ImportData, LocalData>, error::Cycles> {
         for Link { from, to, edge } in self.identify_links() {
             #[cfg(debug_assertions)] // assert no edge is doubled (over all iterations)
             debug_assert!(self.graph.find_edge(from, to).is_none());
@@ -400,8 +428,8 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct Linked<Kind, Type, Index, LocalData> {
-    graph: AcyclicDependencyGraph<Kind, Type, Index, LocalData>,
+pub(crate) struct Linked<Kind, Type, Index, ImportData, LocalData> {
+    graph: AcyclicDependencyGraph<Kind, Type, Index, ImportData, LocalData>,
 }
 
 struct Mismatch {
@@ -409,7 +437,9 @@ struct Mismatch {
     to: NodeIndex,
 }
 
-impl<Kind, Type: Eq, Index, LocalData> Linked<Kind, Type, Index, LocalData> {
+impl<Kind, Type: Eq, Index, ImportData, LocalData>
+    Linked<Kind, Type, Index, ImportData, LocalData>
+{
     fn type_mismatches(&self) -> Vec<Mismatch> {
         let mut mismatches = vec![];
         for edge_ref in self.graph.edge_references() {

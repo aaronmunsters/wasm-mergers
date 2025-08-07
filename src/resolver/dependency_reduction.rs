@@ -8,33 +8,36 @@ use crate::kinds::IdentifierItem;
 use crate::merge_options::ExportIdentifier;
 use crate::resolver::{Export, Import, Linked, Node};
 
-pub(crate) type ReductionMap<Kind, Type, Index, LocalData> =
-    Map<Node<Kind, Type, Index, LocalData>, Node<Kind, Type, Index, LocalData>>;
+pub(crate) type ReductionMap<Kind, Type, Index, LocalData, ImportData> = Map<
+    Node<Kind, Type, Index, LocalData, ImportData>,
+    Node<Kind, Type, Index, LocalData, ImportData>,
+>;
 
 #[derive(Debug, Clone)]
-pub(crate) struct ReducedDependencies<Kind, Type, Index, LocalData> {
+pub(crate) struct ReducedDependencies<Kind, Type, Index, ImportData, LocalData> {
     /// Maps each node to its reduction source (either a remaining import or a local)
-    pub(crate) reduction_map: ReductionMap<Kind, Type, Index, LocalData>,
+    pub(crate) reduction_map: ReductionMap<Kind, Type, Index, ImportData, LocalData>,
 
     /// The remaining imports that should be present after resolution
-    pub(crate) remaining_imports: Set<Import<Kind, Type, Index>>,
+    pub(crate) remaining_imports: Set<Import<Kind, Type, Index, ImportData>>,
 
     /// The remaining exports that should be present after resolution
     pub(crate) remaining_exports: Set<Export<Kind, Type, Index>>,
 }
 
-impl<Kind, Type, Index, LocalData> Linked<Kind, Type, Index, LocalData>
+impl<Kind, Type, Index, ImportData, LocalData> Linked<Kind, Type, Index, ImportData, LocalData>
 where
     Index: Clone + Eq + Hash,
     Kind: Clone + Eq + Hash,
     Type: Clone + Eq + Hash,
+    ImportData: Clone + Eq + Hash,
     LocalData: Clone + Eq + Hash,
 {
     /// Find remaining imports and exports after dependency resolution
     pub(crate) fn reduce_dependencies(
         &self,
         keep_exports: Option<&Set<ExportIdentifier<IdentifierItem<Kind>>>>,
-    ) -> ReducedDependencies<Kind, Type, Index, LocalData> {
+    ) -> ReducedDependencies<Kind, Type, Index, ImportData, LocalData> {
         let mut remaining_imports = Set::new();
         let mut remaining_exports = Set::new();
         let mut reduction_map = Map::new();
@@ -102,7 +105,7 @@ where
         &self,
         start_idx: NodeIndex,
         sources: &Set<NodeIndex>,
-    ) -> Node<Kind, Type, Index, LocalData> {
+    ) -> Node<Kind, Type, Index, ImportData, LocalData> {
         let mut current = start_idx;
 
         // Follow successors until we reach a source
@@ -133,9 +136,10 @@ mod dependency_tests {
 
     type TestKind = ();
     type TestType = ();
-    type TestLocalData = ();
     type TestIndexType = i32;
-    type TestResolver = Resolver<TestKind, TestType, TestIndexType, TestLocalData>;
+    type TestLocalData = ();
+    type TestImportData = ();
+    type TestResolver = Resolver<TestKind, TestType, TestIndexType, TestImportData, TestLocalData>;
     const TEST_TYPE: TestType = ();
     const TEST_LOCAL_DATA: TestLocalData = ();
 
@@ -144,7 +148,7 @@ mod dependency_tests {
         importing_module: &str,
         export_name: &str,
         index: i32,
-    ) -> Import<TestKind, TestType, TestIndexType> {
+    ) -> Import<TestKind, TestType, TestIndexType, TestImportData> {
         Import {
             exporting_module: exporting_module.to_string().into(),
             importing_module: importing_module.to_string().into(),
@@ -152,6 +156,7 @@ mod dependency_tests {
             imported_index: index,
             kind: PhantomData,
             ty: TEST_TYPE,
+            data: (),
         }
     }
 

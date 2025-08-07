@@ -4,33 +4,40 @@ use std::marker::PhantomData;
 
 use walrus::Module;
 use walrus::{FunctionId, GlobalId, MemoryId, TableId};
-use walrus::{RefType, ValType};
 
 use crate::MergeOptions;
 use crate::error::Error;
-use crate::kinds::{FuncType, IdentifierItem, IdentifierModule, Locals};
-use crate::kinds::{Function, Global, Memory, Table};
+use crate::kinds::{FuncType, IdentifierItem, IdentifierModule};
 use crate::merge_options::{ClashingExports, ExportIdentifier, KeepExports, LinkTypeMismatch};
 use crate::merge_options::{DEFAULT_RENAMER, RenameStrategy};
 use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable};
 use crate::merger::provenance_identifier::{Identifier, Old};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::instantiated::{
+    ImportDataFunction, ImportDataGlobal, ImportDataMemory, ImportDataTable,
+};
 use crate::resolver::{Export, Import, Local, Resolver as GraphResolver, instantiated};
 
 #[rustfmt::skip]
 pub(crate) mod builder_instantiated {
-    use super::*;
+    use crate::resolver::instantiated::{ImportDataFunction, ImportDataTable, ImportDataMemory, ImportDataGlobal};
+    use crate::resolver::instantiated::{ LocalDataFunction,  LocalDataTable,  LocalDataMemory,  LocalDataGlobal};
+    use crate::resolver::instantiated::{      TypeFunction,       TypeTable,       TypeMemory,       TypeGlobal};
+    use crate::resolver::instantiated::{      KindFunction,       KindTable,       KindMemory,       KindGlobal};
+    use crate::merger::old_to_new_mapping::{ OldIdFunction,      OldIdTable,      OldIdMemory,      OldIdGlobal};
 
-    pub(crate) type ResolverFunction = GraphResolver<Function, FuncType, OldIdFunction, Locals>;
-    pub(crate) type ResolverTable = GraphResolver<Table, RefType, OldIdTable, ()>;
-    pub(crate) type ResolverMemory = GraphResolver<Memory, (), OldIdMemory, ()>;
-    pub(crate) type ResolverGlobal = GraphResolver<Global, ValType, OldIdGlobal, ()>;
+    use super::{GraphResolver, ReducedDependencies};
 
-    pub(crate) type ReducedDependenciesFunction = ReducedDependencies<Function, FuncType, OldIdFunction, Locals>;
-    pub(crate) type ReducedDependenciesTable = ReducedDependencies<Table, RefType, OldIdTable, ()>;
-    pub(crate) type ReducedDependenciesMemory = ReducedDependencies<Memory, (), OldIdMemory, ()>;
-    pub(crate) type ReducedDependenciesGlobal = ReducedDependencies<Global, ValType, OldIdGlobal, ()>;
+    pub(crate) type ResolverFunction = GraphResolver<KindFunction, TypeFunction, OldIdFunction, ImportDataFunction, LocalDataFunction >;
+    pub(crate) type ResolverTable =    GraphResolver<KindTable,    TypeTable,    OldIdTable,    ImportDataTable,    LocalDataTable    >;
+    pub(crate) type ResolverMemory =   GraphResolver<KindMemory,   TypeMemory,   OldIdMemory,   ImportDataMemory,   LocalDataMemory   >;
+    pub(crate) type ResolverGlobal =   GraphResolver<KindGlobal,   TypeGlobal,   OldIdGlobal,   ImportDataGlobal,   LocalDataGlobal   >;
+
+    pub(crate) type ReducedDependenciesFunction = ReducedDependencies<KindFunction, TypeFunction, OldIdFunction, ImportDataFunction, LocalDataFunction>;
+    pub(crate) type ReducedDependenciesTable =    ReducedDependencies<KindTable,    TypeTable,    OldIdTable,    ImportDataTable,    LocalDataTable   >;
+    pub(crate) type ReducedDependenciesMemory =   ReducedDependencies<KindMemory,   TypeMemory,   OldIdMemory,   ImportDataMemory,   LocalDataMemory  >;
+    pub(crate) type ReducedDependenciesGlobal =   ReducedDependencies<KindGlobal,   TypeGlobal,   OldIdGlobal,   ImportDataGlobal,   LocalDataGlobal  >;
 }
 
 use builder_instantiated::*;
@@ -65,12 +72,13 @@ impl Resolver {
         }
     }
 
-    fn import_from<Kind, Type, Index>(
+    fn import_from<Kind, Type, Index, ImportData>(
         import: &walrus::Import,
         module: &IdentifierModule,
         imported_index: Index,
         ty: Type,
-    ) -> Import<Kind, Type, Index> {
+        data: ImportData,
+    ) -> Import<Kind, Type, Index, ImportData> {
         Import {
             exporting_module: (*import.module).to_string().into(),
             importing_module: module.clone(),
@@ -78,6 +86,7 @@ impl Resolver {
             imported_index,
             kind: PhantomData,
             ty,
+            data,
         }
     }
 
@@ -129,6 +138,7 @@ impl Resolver {
         } = module;
 
         let considering_module: IdentifierModule = (*considering_module).to_string().into();
+        // TODO: make all related to 'covered' debug-only enabled code
         let mut covered_function_imports = Set::new();
         let mut covered_table_imports = Set::new();
         let mut covered_memory_imports = Set::new();
@@ -141,31 +151,38 @@ impl Resolver {
                     covered_function_imports.insert((old_id_function, import.id()));
                     let func = considering_funcs.get(*old_id_function);
                     let ty = FuncType::from_types(func.ty(), considering_types);
-                    let old_id_function: OldIdFunction = (*old_id_function).into();
-                    let import =
-                        Self::import_from(import, &considering_module, old_id_function, ty);
+                    let old_id: OldIdFunction = (*old_id_function).into();
+                    let data = ImportDataFunction;
+                    let import: crate::resolver::instantiated::ImportFunction<OldIdFunction> =
+                        Self::import_from(import, &considering_module, old_id, ty, data);
                     self.function.add_import(import);
                 }
                 walrus::ImportKind::Table(old_id_table) => {
                     covered_table_imports.insert((old_id_table, import.id()));
                     let table = considering_tables.get(*old_id_table);
                     let ty = table.element_ty;
-                    let old_id_table: OldIdTable = (*old_id_table).into();
-                    let import = Self::import_from(import, &considering_module, old_id_table, ty);
+                    let old_id: OldIdTable = (*old_id_table).into();
+                    let data = ImportDataTable;
+                    let import = Self::import_from(import, &considering_module, old_id, ty, data);
                     self.table.add_import(import);
                 }
                 walrus::ImportKind::Memory(old_id_memory) => {
                     covered_memory_imports.insert((old_id_memory, import.id()));
-                    let old_id_memory: OldIdMemory = (*old_id_memory).into();
-                    let import = Self::import_from(import, &considering_module, old_id_memory, ());
+                    let old_id: OldIdMemory = (*old_id_memory).into();
+                    let data = ImportDataMemory;
+                    let import = Self::import_from(import, &considering_module, old_id, (), data);
                     self.memory.add_import(import);
                 }
                 walrus::ImportKind::Global(old_id_global) => {
                     covered_global_imports.insert((old_id_global, import.id()));
                     let global = considering_globals.get(*old_id_global);
                     let ty = global.ty;
-                    let old_id_global: OldIdGlobal = (*old_id_global).into();
-                    let import = Self::import_from(import, &considering_module, old_id_global, ty);
+                    let old_id: OldIdGlobal = (*old_id_global).into();
+                    let data = ImportDataGlobal {
+                        mutable: global.mutable,
+                        shared: global.shared,
+                    };
+                    let import = Self::import_from(import, &considering_module, old_id, ty, data);
                     self.global.add_import(import);
                 }
             }
@@ -326,15 +343,16 @@ impl Resolver {
         }
     }
 
-    fn resolve_kind<Kind, Type, Index, LocalData>(
-        resolver: GraphResolver<Kind, Type, Index, LocalData>,
+    fn resolve_kind<Kind, Type, Index, ImportData, LocalData>(
+        resolver: GraphResolver<Kind, Type, Index, ImportData, LocalData>,
         merge_options: &MergeOptions,
         keep_retriever: KeepRetriever<Kind>,
-    ) -> Result<ReducedDependencies<Kind, Type, Index, LocalData>, Error>
+    ) -> Result<ReducedDependencies<Kind, Type, Index, ImportData, LocalData>, Error>
     where
         Index: Clone + Eq + Hash,
         Kind: Clone + Eq + Hash,
         Type: Clone + Eq + Hash,
+        ImportData: Clone + Eq + Hash,
         LocalData: Clone + Eq + Hash,
     {
         let mut linked = resolver.link_nodes().map_err(|_| Error::ImportCycle)?;
@@ -449,8 +467,8 @@ impl From<&instantiated::ExportTable<Identifier<Old, TableId>>> for ConcreteExpo
     }
 }
 
-impl<'a, Kind: 'a, Type: 'a, Index: 'a, LocalData: 'a> CollectExports
-    for &'a ReducedDependencies<Kind, Type, Index, LocalData>
+impl<'a, Kind: 'a, Type: 'a, Index: 'a, ImportData: 'a, LocalData: 'a> CollectExports
+    for &'a ReducedDependencies<Kind, Type, Index, ImportData, LocalData>
 where
     &'a Export<Kind, Type, Index>: Into<ConcreteExport>,
 {
