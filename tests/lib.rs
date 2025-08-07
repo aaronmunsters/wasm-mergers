@@ -20,15 +20,17 @@ fn iter_permutations<'a>(
 }
 
 fn assert_structural_diff(merged_manual: &[u8], merged_lib: &[u8], allowed_difference: f64) {
-    let merged_manual_len = merged_manual.len() as f64;
-    let merged_lib_len = merged_lib.len() as f64;
+    use conv::ApproxFrom;
+    let merged_manual_len: f64 = (ApproxFrom::approx_from(merged_manual.len())).unwrap();
+    let merged_lib_len: f64 = (ApproxFrom::approx_from(merged_lib.len())).unwrap();
     let ratio = merged_manual_len / merged_lib_len;
+    let allowed_min = 1.0 - allowed_difference;
+    let allowed_max = 1.0 + allowed_difference;
     assert!(
-        (1.0 - allowed_difference..=1.0 + allowed_difference).contains(&ratio),
+        (allowed_min..=allowed_max).contains(&ratio),
         "Lengths differ by more than {allowed_difference}%: manual = {merged_manual_len}, lib = {merged_lib_len}",
     );
 }
-
 /// Merging mutually recursive even and odd functions across modules
 ///
 /// Module Dependency Overview:
