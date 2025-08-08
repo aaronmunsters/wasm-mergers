@@ -495,9 +495,10 @@ impl<Kind, Type: Eq, Index, ImportData, LocalData>
     }
 
     pub(crate) fn type_check_mismatch_signal(&self) -> Result<(), error::TypeMismatch> {
-        self.type_mismatches()
-            .is_empty()
-            .then_some(())
-            .ok_or(error::TypeMismatch)
+        if self.type_mismatches().is_empty() {
+            Ok(())
+        } else {
+            Err(error::TypeMismatch)
+        }
     }
 }

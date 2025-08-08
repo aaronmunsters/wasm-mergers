@@ -4,6 +4,7 @@ use std::marker::PhantomData;
 
 use walrus::IdsToIndices;
 use walrus::Module;
+use walrus::ValType;
 use walrus::{ConstExpr, ElementItems, ExportItem, FunctionBuilder, FunctionId};
 use walrus::{DataKind, ElementKind, FunctionKind, GlobalKind, ImportKind};
 
@@ -85,11 +86,9 @@ impl Merger {
         let module_identifier = old_import.exporting_module().identifier();
         let name = old_import.exporting_identifier().identifier();
         let ty = old_import.ty().add_to_module(module);
-        let (new_id_function, new_id_import) = module.add_import_func(module_identifier, name, ty);
-        // Consider it as a new function
-        let new_id_function: NewIdFunction = new_id_function.into();
-        let _ = new_id_import; // The particular ID is not relevant post merge
-        new_id_function
+        // The particular ID is not relevant post merge
+        let (new_id, _new_id_import) = module.add_import_func(module_identifier, name, ty);
+        new_id.into() // Consider it as a new function
     }
 
     fn add_new_global_import(
@@ -103,12 +102,10 @@ impl Merger {
         let ty = *old_import.ty();
         let mutable = old_import.mutable();
         let shared = old_import.shared();
-        let (new_id, new_id_import) =
+        // The particular ID is not relevant post merge
+        let (new_id, _new_id_import) =
             module.add_import_global(module_identifier, name, ty, mutable, shared);
-        // Consider it as a new id
-        let new_id = new_id.into();
-        let _ = new_id_import; // The particular ID is not relevant post merge
-        new_id
+        new_id.into() // Consider it as a new id
     }
 
     fn add_new_local(
@@ -200,8 +197,7 @@ impl Merger {
         } = considering_module;
 
         // let mut import_covered = HashSet::new();
-        let considering_module_name: IdentifierModule =
-            considering_module_name_str.to_string().into();
+        let considering_module_name: IdentifierModule = considering_module_name_str.into();
 
         for ty in types.iter() {
             self.merged.types.add(ty.params(), ty.results());
@@ -434,7 +430,8 @@ impl Merger {
                                     import.exporting_module.identifier(),
                                     import.exporting_identifier.identifier()
                                 )
-                                .is_ok()
+                                .is_ok(),
+                            "Function import should exist: {import:?}",
                         );
                     } else {
                         #[cfg(debug_assertions)]
@@ -723,7 +720,12 @@ impl Merger {
             .collect();
 
         if !self.starts.is_empty() {
-            let mut builder = FunctionBuilder::new(&mut self.merged.types, &[], &[]);
+            const EMPTY_PARAMS: &[ValType] = &[];
+            const EMPTY_RESULTS: &[ValType] = &[];
+
+            let mut builder =
+                FunctionBuilder::new(&mut self.merged.types, EMPTY_PARAMS, EMPTY_RESULTS);
+
             for start in self.starts {
                 builder.func_body().call(start);
             }
@@ -815,7 +817,10 @@ impl MergedJoinable for ReducedDependenciesFunction {
             // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
             // The reduced should be present in the new mapping
             #[cfg(debug_assertions)]
-            debug_assert!(reduced.is_some());
+            debug_assert!(
+                reduced.is_some(),
+                "Reduced node should exist in mapping for {old_export:?}",
+            );
 
             // Inject pointer from old to new
             if let Some(reduced) = reduced {

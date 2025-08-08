@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::hash::Hash;
 
 use walrus::InstrSeqBuilder;
 use walrus::LocalFunction;
@@ -16,20 +18,10 @@ use walrus::ir::{
 
 use crate::kinds::{FuncType, IdentifierModule};
 use crate::merger::old_to_new_mapping::Mapping;
-use crate::merger::old_to_new_mapping::NewIdData;
-use crate::merger::old_to_new_mapping::NewIdElement;
 use crate::merger::old_to_new_mapping::NewIdFunction;
-use crate::merger::old_to_new_mapping::NewIdGlobal;
 use crate::merger::old_to_new_mapping::NewIdLocal;
-use crate::merger::old_to_new_mapping::NewIdMemory;
-use crate::merger::old_to_new_mapping::NewIdTable;
-use crate::merger::old_to_new_mapping::OldIdData;
-use crate::merger::old_to_new_mapping::OldIdElement;
 use crate::merger::old_to_new_mapping::OldIdFunction;
-use crate::merger::old_to_new_mapping::OldIdGlobal;
 use crate::merger::old_to_new_mapping::OldIdLocal;
-use crate::merger::old_to_new_mapping::OldIdMemory;
-use crate::merger::old_to_new_mapping::OldIdTable;
 use crate::merger::provenance_identifier::{Identifier, New, Old};
 
 struct SequenceStack {
@@ -152,12 +144,21 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
         }
     }
 
-    fn old_to_new_fn_id(&self, old_id: OldIdFunction) -> NewIdFunction {
-        self.mapping
-            .funcs
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
+    fn map_id<OldId, NewId>(
+        &self,
+        old_id: OldId,
+        mapping: &HashMap<(IdentifierModule, OldId), NewId>,
+    ) -> NewId
+    where
+        OldId: Copy + Eq + Hash + Debug,
+        NewId: Copy,
+    {
+        let old_module_name = self.old_module_name.clone();
+        let key = (old_module_name.clone(), old_id);
+
+        *mapping
+            .get(&key)
+            .unwrap_or_else(|| panic!("Failed to find mapping for {old_module_name:?} {old_id:?}",))
     }
 
     fn old_to_new_local_id(&mut self, old_id: OldIdLocal) -> NewIdLocal {
@@ -184,46 +185,6 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
                 .insert((self.old_module_name.clone(), old_id), new_local);
             new_local
         }
-    }
-
-    fn old_to_new_table_id(&self, old_id: OldIdTable) -> NewIdTable {
-        self.mapping
-            .tables
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
-    }
-
-    fn old_to_new_global_id(&self, old_id: OldIdGlobal) -> NewIdGlobal {
-        self.mapping
-            .globals
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
-    }
-
-    fn old_to_new_memory_id(&self, old_id: OldIdMemory) -> NewIdMemory {
-        self.mapping
-            .memories
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
-    }
-
-    fn old_to_new_data_id(&self, old_id: OldIdData) -> NewIdData {
-        self.mapping
-            .datas
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
-    }
-
-    fn old_to_new_elem_id(&self, old_id: OldIdElement) -> NewIdElement {
-        self.mapping
-            .elements
-            .get(&(self.old_module_name.clone(), old_id))
-            .copied()
-            .unwrap()
     }
 
     fn old_to_new_type_id(&mut self, old_id: TypeId) -> TypeId {
@@ -358,7 +319,8 @@ impl CopyOver for &Loop {
 impl CopyOver for &Call {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_function_id: Identifier<Old, _> = self.func.into();
-        let new_function_id: Identifier<New, _> = target.old_to_new_fn_id(old_function_id);
+        let new_function_id: Identifier<New, _> =
+            target.map_id(old_function_id, &target.mapping.funcs);
         target.current_sequence().call(*new_function_id);
     }
 }
@@ -371,7 +333,7 @@ impl CopyOver for &CallIndirect {
             .types
             .add(owned_type.params(), owned_type.results());
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target
             .current_sequence()
             .call_indirect(new_type, *new_table_id);
@@ -411,7 +373,8 @@ impl CopyOver for &LocalTee {
 impl CopyOver for &GlobalGet {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_global_id: Identifier<Old, _> = self.global.into();
-        let new_global_id: Identifier<New, _> = target.old_to_new_global_id(old_global_id);
+        let new_global_id: Identifier<New, _> =
+            target.map_id(old_global_id, &target.mapping.globals);
         target.current_sequence().global_get(*new_global_id);
     }
 }
@@ -419,7 +382,8 @@ impl CopyOver for &GlobalGet {
 impl CopyOver for &GlobalSet {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_global_id: Identifier<Old, _> = self.global.into();
-        let new_global_id: Identifier<New, _> = target.old_to_new_global_id(old_global_id);
+        let new_global_id: Identifier<New, _> =
+            target.map_id(old_global_id, &target.mapping.globals);
         target.current_sequence().global_set(*new_global_id);
     }
 }
@@ -450,7 +414,6 @@ impl CopyOver for &Select {
 
 impl CopyOver for &Unreachable {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().unreachable();
     }
 }
@@ -514,7 +477,6 @@ impl CopyOver for &BrTable {
 
 impl CopyOver for &Drop {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().drop();
     }
 }
@@ -528,7 +490,8 @@ impl CopyOver for &Return {
 impl CopyOver for &MemorySize {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target.current_sequence().memory_size(*new_memory_id);
     }
 }
@@ -536,7 +499,8 @@ impl CopyOver for &MemorySize {
 impl CopyOver for &MemoryGrow {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target.current_sequence().memory_grow(*new_memory_id);
     }
 }
@@ -544,9 +508,10 @@ impl CopyOver for &MemoryGrow {
 impl CopyOver for &MemoryInit {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         let old_data_id: Identifier<Old, _> = self.data.into();
-        let new_data_id: Identifier<New, _> = target.old_to_new_data_id(old_data_id);
+        let new_data_id: Identifier<New, _> = target.map_id(old_data_id, &target.mapping.datas);
         target
             .current_sequence()
             .memory_init(*new_memory_id, *new_data_id);
@@ -556,7 +521,7 @@ impl CopyOver for &MemoryInit {
 impl CopyOver for &DataDrop {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_data_id: Identifier<Old, _> = self.data.into();
-        let new_data_id: Identifier<New, _> = target.old_to_new_data_id(old_data_id);
+        let new_data_id: Identifier<New, _> = target.map_id(old_data_id, &target.mapping.datas);
         target.current_sequence().data_drop(*new_data_id);
     }
 }
@@ -564,9 +529,11 @@ impl CopyOver for &DataDrop {
 impl CopyOver for &MemoryCopy {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_src_memory_id: Identifier<Old, _> = self.src.into();
-        let new_src_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_src_memory_id);
+        let new_src_memory_id: Identifier<New, _> =
+            target.map_id(old_src_memory_id, &target.mapping.memories);
         let old_dst_memory_id: Identifier<Old, _> = self.dst.into();
-        let new_dst_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_dst_memory_id);
+        let new_dst_memory_id: Identifier<New, _> =
+            target.map_id(old_dst_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .memory_copy(*new_src_memory_id, *new_dst_memory_id);
@@ -576,7 +543,8 @@ impl CopyOver for &MemoryCopy {
 impl CopyOver for &MemoryFill {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target.current_sequence().memory_fill(*new_memory_id);
     }
 }
@@ -584,7 +552,8 @@ impl CopyOver for &MemoryFill {
 impl CopyOver for &Load {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .load(*new_memory_id, self.kind, self.arg);
@@ -594,7 +563,8 @@ impl CopyOver for &Load {
 impl CopyOver for &Store {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .store(*new_memory_id, self.kind, self.arg);
@@ -604,7 +574,8 @@ impl CopyOver for &Store {
 impl CopyOver for &AtomicRmw {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .atomic_rmw(*new_memory_id, self.op, self.width, self.arg);
@@ -614,7 +585,8 @@ impl CopyOver for &AtomicRmw {
 impl CopyOver for &Cmpxchg {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .cmpxchg(*new_memory_id, self.width, self.arg);
@@ -624,7 +596,8 @@ impl CopyOver for &Cmpxchg {
 impl CopyOver for &AtomicNotify {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .atomic_notify(*new_memory_id, self.arg);
@@ -634,7 +607,8 @@ impl CopyOver for &AtomicNotify {
 impl CopyOver for &AtomicWait {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .atomic_wait(*new_memory_id, self.arg, self.sixty_four);
@@ -643,7 +617,6 @@ impl CopyOver for &AtomicWait {
 
 impl CopyOver for &AtomicFence {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().atomic_fence();
     }
 }
@@ -651,7 +624,7 @@ impl CopyOver for &AtomicFence {
 impl CopyOver for &TableGet {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target.current_sequence().table_get(*new_table_id);
     }
 }
@@ -659,7 +632,7 @@ impl CopyOver for &TableGet {
 impl CopyOver for &TableSet {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target.current_sequence().table_set(*new_table_id);
     }
 }
@@ -667,7 +640,7 @@ impl CopyOver for &TableSet {
 impl CopyOver for &TableGrow {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target.current_sequence().table_grow(*new_table_id);
     }
 }
@@ -675,7 +648,7 @@ impl CopyOver for &TableGrow {
 impl CopyOver for &TableSize {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target.current_sequence().table_size(*new_table_id);
     }
 }
@@ -683,7 +656,7 @@ impl CopyOver for &TableSize {
 impl CopyOver for &TableFill {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target.current_sequence().table_fill(*new_table_id);
     }
 }
@@ -696,7 +669,6 @@ impl CopyOver for &RefNull {
 
 impl CopyOver for &RefIsNull {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().ref_is_null();
     }
 }
@@ -704,21 +676,19 @@ impl CopyOver for &RefIsNull {
 impl CopyOver for &RefFunc {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_function_id: Identifier<Old, _> = self.func.into();
-        let new_function_id = target.old_to_new_fn_id(old_function_id);
+        let new_function_id = target.map_id(old_function_id, &target.mapping.funcs);
         target.current_sequence().ref_func(*new_function_id);
     }
 }
 
 impl CopyOver for &V128Bitselect {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().v128_bitselect();
     }
 }
 
 impl CopyOver for &I8x16Swizzle {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let _ = self;
         target.current_sequence().i8x16_swizzle();
     }
 }
@@ -732,7 +702,8 @@ impl CopyOver for &I8x16Shuffle {
 impl CopyOver for &LoadSimd {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_memory_id: Identifier<Old, _> = self.memory.into();
-        let new_memory_id: Identifier<New, _> = target.old_to_new_memory_id(old_memory_id);
+        let new_memory_id: Identifier<New, _> =
+            target.map_id(old_memory_id, &target.mapping.memories);
         target
             .current_sequence()
             .load_simd(*new_memory_id, self.kind, self.arg);
@@ -742,9 +713,9 @@ impl CopyOver for &LoadSimd {
 impl CopyOver for &TableInit {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         let old_elem_id: Identifier<Old, _> = self.elem.into();
-        let new_elem_id: Identifier<New, _> = target.old_to_new_elem_id(old_elem_id);
+        let new_elem_id: Identifier<New, _> = target.map_id(old_elem_id, &target.mapping.elements);
         target
             .current_sequence()
             .table_init(*new_table_id, *new_elem_id);
@@ -754,7 +725,7 @@ impl CopyOver for &TableInit {
 impl CopyOver for &ElemDrop {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_elem_id: Identifier<Old, _> = self.elem.into();
-        let new_elem_id: Identifier<New, _> = target.old_to_new_elem_id(old_elem_id);
+        let new_elem_id: Identifier<New, _> = target.map_id(old_elem_id, &target.mapping.elements);
         target.current_sequence().elem_drop(*new_elem_id);
     }
 }
@@ -762,9 +733,11 @@ impl CopyOver for &ElemDrop {
 impl CopyOver for &TableCopy {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_src_table_id: Identifier<Old, _> = self.src.into();
-        let new_src_table_id: Identifier<New, _> = target.old_to_new_table_id(old_src_table_id);
+        let new_src_table_id: Identifier<New, _> =
+            target.map_id(old_src_table_id, &target.mapping.tables);
         let old_dst_table_id: Identifier<Old, _> = self.dst.into();
-        let new_dst_table_id: Identifier<New, _> = target.old_to_new_table_id(old_dst_table_id);
+        let new_dst_table_id: Identifier<New, _> =
+            target.map_id(old_dst_table_id, &target.mapping.tables);
         target
             .current_sequence()
             .table_copy(*new_src_table_id, *new_dst_table_id);
@@ -774,7 +747,8 @@ impl CopyOver for &TableCopy {
 impl CopyOver for &ReturnCall {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_function_id: Identifier<Old, _> = self.func.into();
-        let new_function_id: Identifier<New, _> = target.old_to_new_fn_id(old_function_id);
+        let new_function_id: Identifier<New, _> =
+            target.map_id(old_function_id, &target.mapping.funcs);
         target.current_sequence().return_call(*new_function_id);
     }
 }
@@ -782,7 +756,7 @@ impl CopyOver for &ReturnCall {
 impl CopyOver for &ReturnCallIndirect {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
-        let new_table_id: Identifier<New, _> = target.old_to_new_table_id(old_table_id);
+        let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         let owned_type = FuncType::from_types(self.ty, &target.old_module.types);
         let new_type = target
             .new_module

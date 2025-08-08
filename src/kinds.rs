@@ -77,7 +77,7 @@ impl<Kind> IdentifierItem<Kind> {
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into, Display)]
-#[from(String)]
+#[from(String, &str)]
 pub struct IdentifierModule(String);
 
 impl IdentifierModule {
