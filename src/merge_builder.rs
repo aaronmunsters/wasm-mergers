@@ -3,7 +3,6 @@ use std::hash::Hash;
 use std::marker::PhantomData;
 
 use walrus::Module;
-use walrus::{FunctionId, GlobalId, MemoryId, TableId};
 
 use crate::MergeOptions;
 use crate::error::Error;
@@ -443,25 +442,25 @@ trait CollectExports {
     fn collect_into(&self, exports: &mut Map<String, Vec<ConcreteExport>>);
 }
 
-impl From<&instantiated::ExportFunction<Identifier<Old, FunctionId>>> for ConcreteExport {
-    fn from(_: &instantiated::ExportFunction<Identifier<Old, FunctionId>>) -> Self {
+impl From<&instantiated::ExportFunction<OldIdFunction>> for ConcreteExport {
+    fn from(_: &instantiated::ExportFunction<OldIdFunction>) -> Self {
         Self::Function
     }
 }
-impl From<&instantiated::ExportGlobal<Identifier<Old, GlobalId>>> for ConcreteExport {
-    fn from(_: &instantiated::ExportGlobal<Identifier<Old, GlobalId>>) -> Self {
+impl From<&instantiated::ExportGlobal<OldIdGlobal>> for ConcreteExport {
+    fn from(_: &instantiated::ExportGlobal<OldIdGlobal>) -> Self {
         Self::Global
     }
 }
 
-impl From<&instantiated::ExportMemory<Identifier<Old, MemoryId>>> for ConcreteExport {
-    fn from(_: &instantiated::ExportMemory<Identifier<Old, MemoryId>>) -> Self {
+impl From<&instantiated::ExportMemory<OldIdMemory>> for ConcreteExport {
+    fn from(_: &instantiated::ExportMemory<OldIdMemory>) -> Self {
         Self::Memory
     }
 }
 
-impl From<&instantiated::ExportTable<Identifier<Old, TableId>>> for ConcreteExport {
-    fn from(_: &instantiated::ExportTable<Identifier<Old, TableId>>) -> Self {
+impl From<&instantiated::ExportTable<OldIdTable>> for ConcreteExport {
+    fn from(_: &instantiated::ExportTable<OldIdTable>) -> Self {
         Self::Table
     }
 }
