@@ -13,7 +13,7 @@ pub(crate) mod provenance_identifier;
 mod walrus_copy;
 
 use crate::error::Error;
-use crate::kinds::{FuncType, Function, IdentifierModule};
+use crate::kinds::{FuncType, IdentifierModule};
 use crate::merge_builder::AllResolved;
 use crate::merge_builder::RenameMap;
 use crate::merge_builder::builder_instantiated::ReducedDependenciesFunction;
@@ -22,9 +22,9 @@ use crate::merge_options::{IdentifierFunction, RenameStrategy};
 use crate::merger::old_to_new_mapping::NewIdGlobal;
 use crate::merger::old_to_new_mapping::OldIdGlobal;
 use crate::named_module::NamedParsedModule;
+use crate::resolver::Local;
 use crate::resolver::instantiated::ImportDataFunction;
 use crate::resolver::instantiated::ImportGlobal;
-use crate::resolver::instantiated::LocalDataFunction;
 use crate::resolver::{Export, Import, Node};
 
 use old_to_new_mapping::{Mapping, NewIdFunction, OldIdFunction};
@@ -38,48 +38,58 @@ pub(crate) struct Merger {
     all_resolved: AllResolved,
 }
 
-type FunctionNode = Node<Function, FuncType, OldIdFunction, ImportDataFunction, LocalDataFunction>;
-type OldFunctionRef = (IdentifierModule, OldIdFunction);
-
-trait AsMappingRef {
-    fn to_mapping_ref(&self) -> OldFunctionRef;
+trait AsOldToNewMapIndex<KindIdentifier> {
+    fn to_mapping_ref(&self) -> (IdentifierModule, Identifier<Old, KindIdentifier>);
 }
 
-impl AsMappingRef for FunctionNode {
-    fn to_mapping_ref(&self) -> OldFunctionRef {
+impl<Kind, Type, KindIdentifier, ImportData, LocalData> AsOldToNewMapIndex<KindIdentifier>
+    for Node<Kind, Type, Identifier<Old, KindIdentifier>, ImportData, LocalData>
+where
+    Identifier<Old, KindIdentifier>: Copy,
+{
+    fn to_mapping_ref(&self) -> (IdentifierModule, Identifier<Old, KindIdentifier>) {
         match self {
-            Node::Import(import) => import.to_mapping_ref(),
-            Node::Local(local) => local.to_mapping_ref(),
-            Node::Export(export) => export.to_mapping_ref(),
+            Node::Import(import) => (import.importing_module().clone(), *import.imported_index()),
+            Node::Local(local) => (local.module().clone(), *local.index()),
+            Node::Export(export) => (export.module().clone(), *export.index()),
         }
     }
 }
 
-use super::resolver::instantiated::{ExportFunction, ImportFunction, LocalFunction};
-
-impl AsMappingRef for ImportFunction<OldIdFunction> {
-    fn to_mapping_ref(&self) -> OldFunctionRef {
-        let index: OldIdFunction = *self.imported_index();
-        (self.importing_module().clone(), index)
+impl<Kind, Type, KindIdentifier, ImportData> AsOldToNewMapIndex<KindIdentifier>
+    for Import<Kind, Type, Identifier<Old, KindIdentifier>, ImportData>
+where
+    Identifier<Old, KindIdentifier>: Copy,
+{
+    fn to_mapping_ref(&self) -> (IdentifierModule, Identifier<Old, KindIdentifier>) {
+        (self.importing_module().clone(), *self.imported_index())
     }
 }
 
-impl AsMappingRef for LocalFunction<OldIdFunction> {
-    fn to_mapping_ref(&self) -> OldFunctionRef {
-        let index: OldIdFunction = *self.index();
-        (self.module().clone(), index)
+impl<Kind, Type, KindIdentifier, ImportData> AsOldToNewMapIndex<KindIdentifier>
+    for Local<Kind, Type, Identifier<Old, KindIdentifier>, ImportData>
+where
+    Identifier<Old, KindIdentifier>: Copy,
+{
+    fn to_mapping_ref(&self) -> (IdentifierModule, Identifier<Old, KindIdentifier>) {
+        (self.module().clone(), *self.index())
     }
 }
 
-impl AsMappingRef for ExportFunction<OldIdFunction> {
-    fn to_mapping_ref(&self) -> OldFunctionRef {
-        let index: OldIdFunction = *self.index();
-        (self.module().clone(), index)
+impl<Kind, Type, KindIdentifier> AsOldToNewMapIndex<KindIdentifier>
+    for Export<Kind, Type, Identifier<Old, KindIdentifier>>
+where
+    Identifier<Old, KindIdentifier>: Copy,
+{
+    fn to_mapping_ref(&self) -> (IdentifierModule, Identifier<Old, KindIdentifier>) {
+        (self.module().clone(), *self.index())
     }
 }
+
+use super::resolver::instantiated::{ImportFunction, LocalFunction};
 
 impl Merger {
-    fn add_new_function_import(
+    fn add_new_import_function(
         module: &mut Module,
         old_import: &ImportFunction<OldIdFunction>,
     ) -> NewIdFunction {
@@ -91,7 +101,7 @@ impl Merger {
         new_id.into() // Consider it as a new function
     }
 
-    fn add_new_global_import(
+    fn add_new_import_global(
         module: &mut Module,
         old_import: &ImportGlobal<OldIdGlobal>,
     ) -> NewIdGlobal {
@@ -108,7 +118,7 @@ impl Merger {
         new_id.into() // Consider it as a new id
     }
 
-    fn add_new_local(
+    fn add_new_local_function(
         module: &mut Module,
         mapping: &mut Mapping,
         old_local: &LocalFunction<OldIdFunction>,
@@ -126,12 +136,11 @@ impl Merger {
             })
             .collect();
         let builder = FunctionBuilder::new(&mut module.types, ty.params(), ty.results());
-        let new_function_index = builder.finish(locals, &mut module.funcs);
-        let new_function_index: Identifier<New, _> = new_function_index.into();
-        new_function_index
+        let new_index = builder.finish(locals, &mut module.funcs);
+        new_index.into()
     }
 
-    fn add_new_export(
+    fn add_new_export_function(
         module: &mut Module,
         new_export_identifier: &IdentifierFunction,
         new_index: NewIdFunction,
@@ -779,7 +788,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
     fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
         // 1. Include all remaining imports:
         for old_import in &self.remaining_imports {
-            let new_import = Merger::add_new_function_import(module, old_import);
+            let new_import = Merger::add_new_import_function(module, old_import);
             mapping
                 .funcs
                 .insert(old_import.to_mapping_ref(), new_import);
@@ -790,7 +799,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
             .keys()
             .filter_map(|node| node.as_local())
             .for_each(|old_local| {
-                let new_local = Merger::add_new_local(module, mapping, old_local);
+                let new_local = Merger::add_new_local_function(module, mapping, old_local);
                 mapping.funcs.insert(old_local.to_mapping_ref(), new_local);
             });
 
@@ -824,7 +833,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
 
             // Inject pointer from old to new
             if let Some(reduced) = reduced {
-                Merger::add_new_export(module, old_export.identifier(), *reduced);
+                Merger::add_new_export_function(module, old_export.identifier(), *reduced);
             }
         }
     }
@@ -834,13 +843,11 @@ impl MergedJoinable for ReducedDependenciesGlobal {
     fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
         // 1. Include all remaining imports:
         for old_import in &self.remaining_imports {
-            let new_import = Merger::add_new_global_import(module, old_import);
-            let _ = new_import; // TODO: ...
-            let _ = mapping; // TODO: ...
-            let _ = rename_map; // TODO: ...
-            // mapping
-            //     .funcs
-            //     .insert(old_import.to_mapping_ref(), new_import);
+            let new_import = Merger::add_new_import_global(module, old_import);
+            mapping
+                .globals
+                .insert(old_import.to_mapping_ref(), new_import);
+            let _ = rename_map; // TODO: ... put to use
         }
 
         // // 2. Include all locals:
@@ -848,13 +855,15 @@ impl MergedJoinable for ReducedDependenciesGlobal {
         //     .keys()
         //     .filter_map(|node| node.as_local())
         //     .for_each(|old_local| {
-        //         let new_local = Merger::add_new_local(module, mapping, old_local);
-        //         mapping.funcs.insert(old_local.to_mapping_ref(), new_local);
+        //         let new_local = Merger::add_new_local_global(module, mapping, old_local);
+        //         mapping
+        //             .globals
+        //             .insert(old_local.to_mapping_ref(), new_local);
         //     });
 
         // for (node, reduced) in &self.reduction_map {
         //     // Find location of reduced node:
-        //     let reduced = mapping.funcs.get(&reduced.to_mapping_ref()).copied();
+        //     let reduced = mapping.globals.get(&reduced.to_mapping_ref()).copied();
 
         //     // The reduced should be present in the new mapping
         //     #[cfg(debug_assertions)]
@@ -862,15 +871,15 @@ impl MergedJoinable for ReducedDependenciesGlobal {
 
         //     // Inject pointer from old to new
         //     if let Some(reduced) = reduced {
-        //         mapping.funcs.insert(node.to_mapping_ref(), reduced);
+        //         mapping.globals.insert(node.to_mapping_ref(), reduced);
         //     }
         // }
 
         // for old_export in &self.remaining_exports {
-        //     let reduced = mapping.funcs.get(&old_export.to_mapping_ref());
+        //     let reduced = mapping.globals.get(&old_export.to_mapping_ref());
 
         //     let mut old_export = old_export.clone();
-        //     rename_map.rename_if_required(&mut old_export, RenameStrategy::functions);
+        //     rename_map.rename_if_required(&mut old_export, RenameStrategy::globals);
 
         //     // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
         //     // The reduced should be present in the new mapping
