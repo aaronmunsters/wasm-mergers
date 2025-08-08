@@ -2,6 +2,7 @@ use std::collections::{HashMap as Map, HashSet as Set};
 use std::hash::Hash;
 use std::marker::PhantomData;
 
+use anyhow::anyhow;
 use walrus::Module;
 
 use crate::MergeOptions;
@@ -213,9 +214,9 @@ impl Resolver {
                     debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)));
                 }
                 walrus::FunctionKind::Uninitialized(_) => {
-                    return Err(Error::ComponentModelUnsupported(
-                        considering_module.identifier().to_string(),
-                    ));
+                    return Err(Error::Parse(anyhow!(
+                        "walrus::FunctionKind::Uninitialized during parsing of {considering_module}",
+                    )));
                 }
             }
         }

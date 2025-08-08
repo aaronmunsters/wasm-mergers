@@ -2,6 +2,7 @@ use core::convert::From;
 
 use std::marker::PhantomData;
 
+use anyhow::anyhow;
 use walrus::IdsToIndices;
 use walrus::Module;
 use walrus::ValType;
@@ -518,9 +519,9 @@ impl Merger {
                     );
                 }
                 FunctionKind::Uninitialized(_) => {
-                    return Err(Error::ComponentModelUnsupported(
-                        considering_module_name_str.to_string(),
-                    ));
+                    return Err(Error::Parse(anyhow!(
+                        "walrus::FunctionKind::Uninitialized during parsing of {considering_module_name_str}",
+                    )));
                 }
             }
         }

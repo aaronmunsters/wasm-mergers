@@ -285,29 +285,9 @@ pub(crate) struct Resolver<Kind, Type, Index, ImportData, LocalData> {
 }
 
 pub(crate) mod error {
-    /// Import cycle
-    ///
-    /// Eg.
-    /// ```wat
-    /// (module "A" (import "Bf" (result i32))
-    ///             (export "Af" (result i32)))
-    /// (module "B" (import "Af" (result i32))
-    ///             (export "Bf" (result i32)))
-    /// ;; ==> Merging results in ... infinite loop ?
-    /// ```
-    /// Would result in a `Set { A:f:i32 -> { B:f:i64, C:f:f64 } }`.
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-    pub(crate) struct Cycles; // TODO: cycles should report information on what the breaking cycle is
+    pub(crate) struct Cycles;
 
-    /// Types Mismatch
-    ///
-    /// Eg.
-    /// ```wat
-    /// (module "A" (export "f" (result i32)))
-    /// (module "B" (import "A" "f" (result i64)))
-    /// (module "C" (import "A" "f" (result f64)))
-    /// ```
-    /// Would result in a `Set { A:f:i32 -> { B:f:i64, C:f:f64 } }`.
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct TypeMismatch; // TODO: type mismatch should report conflicting types
 }
@@ -417,6 +397,7 @@ where
         for Link { from, to, edge } in self.identify_links() {
             #[cfg(debug_assertions)] // assert no edge is doubled (over all iterations)
             debug_assert!(self.graph.find_edge(from, to).is_none());
+
             self.graph
                 .try_add_edge(from, to, edge.clone())
                 .map_err(|cycle_err| {
