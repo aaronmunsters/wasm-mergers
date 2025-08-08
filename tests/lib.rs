@@ -188,6 +188,7 @@ fn test_earmark() -> Result<(), Error> {
 ///     └──────────────────────────────────┘
 ///          [Mutual recursion cycle]
 ///  ```
+#[allow(clippy::too_many_lines)] // TODO: fix / remove
 #[test]
 fn merge_cycle_chain() -> Result<(), Error> {
     const WAT_MOD_ABCDE: &str = r#"
@@ -739,6 +740,7 @@ fn test_multi_memory() -> Result<(), Error> {
     Ok(())
 }
 
+#[allow(clippy::too_many_lines)] // TODO: fix / remove
 #[test]
 fn test() {
     use arbitrary::Unstructured;

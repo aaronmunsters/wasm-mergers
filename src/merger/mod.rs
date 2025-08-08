@@ -174,6 +174,7 @@ impl Merger {
         }
     }
 
+    #[allow(clippy::too_many_lines)] // TODO: fix / remove
     pub(crate) fn include(&mut self, module: NamedParsedModule<'_>) -> Result<(), Error> {
         let NamedParsedModule {
             name: considering_module_name_str,

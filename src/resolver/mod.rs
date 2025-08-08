@@ -98,9 +98,11 @@ impl<Kind, Type, Index> Export<Kind, Type, Index> {
 }
 
 #[rustfmt::skip]
-// #[allow(unused)] // TODO: fix / remove
 pub(crate) mod instantiated {
-    use super::*;
+    use super::{Debug, Hash};
+    use super::{Export, Import, Local};
+    use super::{FuncType, Locals, RefType, ValType};
+    use super::{Function, Global, Memory, Table};
     
     /* Instantiated Kinds, Types & Locals */
 

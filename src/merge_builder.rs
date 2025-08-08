@@ -40,22 +40,20 @@ pub(crate) mod builder_instantiated {
     pub(crate) type ReducedDependenciesGlobal =   ReducedDependencies<KindGlobal,   TypeGlobal,   OldIdGlobal,   ImportDataGlobal,   LocalDataGlobal  >;
 }
 
-use builder_instantiated::*;
-
 #[derive(Debug, Clone)]
 pub(crate) struct Resolver {
-    function: ResolverFunction,
-    table: ResolverTable,
-    memory: ResolverMemory,
-    global: ResolverGlobal,
+    function: builder_instantiated::ResolverFunction,
+    table: builder_instantiated::ResolverTable,
+    memory: builder_instantiated::ResolverMemory,
+    global: builder_instantiated::ResolverGlobal,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct AllReducedDependencies {
-    pub functions: ReducedDependenciesFunction,
-    pub tables: ReducedDependenciesTable,
-    pub memories: ReducedDependenciesMemory,
-    pub globals: ReducedDependenciesGlobal,
+    pub functions: builder_instantiated::ReducedDependenciesFunction,
+    pub tables: builder_instantiated::ReducedDependenciesTable,
+    pub memories: builder_instantiated::ReducedDependenciesMemory,
+    pub globals: builder_instantiated::ReducedDependenciesGlobal,
 }
 
 type KeepRetriever<Kind> = fn(&KeepExports) -> &Set<ExportIdentifier<IdentifierItem<Kind>>>;
@@ -120,6 +118,7 @@ impl Resolver {
         }
     }
 
+    #[allow(clippy::too_many_lines)] // TODO: fix / remove
     pub(crate) fn consider(&mut self, module: &NamedParsedModule<'_>) -> Result<(), Error> {
         let NamedParsedModule {
             name: considering_module,
