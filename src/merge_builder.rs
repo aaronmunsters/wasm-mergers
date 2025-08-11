@@ -111,7 +111,7 @@ impl Resolver {
     ) -> Export<Kind, Type, Index> {
         Export {
             module: module.clone(),
-            identifier: export.name.to_string().into(),
+            identifier: export.name.clone().into(),
             index: exported_index,
             kind: PhantomData,
             ty,

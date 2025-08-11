@@ -415,9 +415,9 @@ impl Merger {
                     let ty = FuncType::from_types(ty, types);
 
                     let import = Import {
-                        exporting_module: import.module.to_string().into(),
-                        importing_module: module.name.to_string().into(),
-                        exporting_identifier: import.name.to_string().into(),
+                        exporting_module: import.module.clone().into(),
+                        importing_module: module.name.into(),
+                        exporting_identifier: import.name.clone().into(),
                         imported_index: Identifier::<Old, _>::from(*before_id),
                         kind: PhantomData,
                         ty,
@@ -534,7 +534,7 @@ impl Merger {
                     let ty = FuncType::from_types(ty, types);
                     let lookup_export = Export {
                         module: considering_module_name.identifier().to_string().into(),
-                        identifier: export.name.to_string().into(),
+                        identifier: export.name.clone().into(),
                         index: (*before_id).into(),
                         kind: PhantomData,
                         ty,
@@ -713,7 +713,7 @@ impl Merger {
 
         if let Some(name) = name {
             self.names
-                .push((considering_module_name_str.to_string(), name.to_string()));
+                .push((considering_module_name_str.to_string(), name.clone()));
         }
 
         Ok(())
