@@ -4,6 +4,34 @@ use std::{hash::Hash, marker::PhantomData};
 use derive_more::{Display, From, Into};
 use walrus::{LocalId, Module, TypeId, ValType};
 
+// TODO: What if the kind is a mismatch? Eg. import::Func -> export::Global
+//       A specific merge case is possible, in which no error should occur.
+//
+//       ```txt
+//          (mod "A" (export func "a"))
+//          (mod "B" (export tabl "a"))
+//       ```
+//
+//       At this point, `A:a` and B:a should clash since the merged module would
+//       export `a` for two different kinds. However, if the following module
+//       were also included in the merge:
+//       ```txt
+//          (mod "C" (import func "A" "a"))
+//       ```
+//
+//       Then the outcome should not clash, as `A:a` can be linked to `C`'s
+//       import, allowing it to become hidden and ensure that the only exported
+//       item remains to be:
+//       ```txt
+//          (export tabl "a") ;; Comes from `B`
+//       ```
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct CrossModuleMismatch {
+    pub importing: IdentifierModule,
+    pub exporting: IdentifierModule,
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
 pub enum ExportKind {
     Function,

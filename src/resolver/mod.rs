@@ -9,7 +9,7 @@ use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::{EdgeRef, IntoNodeReferences};
 use walrus::{RefType, ValType};
 
-use crate::kinds::{FuncType, IdentifierItem, IdentifierModule, Locals};
+use crate::kinds::{CrossModuleMismatch, FuncType, IdentifierItem, IdentifierModule, Locals};
 use crate::kinds::{Function, Global, Memory, Table};
 
 pub(crate) mod dependency_reduction;
@@ -285,11 +285,13 @@ pub(crate) struct Resolver<Kind, Type, Index, ImportData, LocalData> {
 }
 
 pub(crate) mod error {
+    use crate::resolver::CrossModuleMismatch;
+
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
     pub(crate) struct Cycles;
 
     #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-    pub(crate) struct TypeMismatch; // TODO: type mismatch should report conflicting types
+    pub(crate) struct TypeMismatch(pub(crate) Vec<CrossModuleMismatch>);
 }
 
 struct Link {
@@ -476,10 +478,35 @@ impl<Kind, Type: Eq, Index, ImportData, LocalData>
     }
 
     pub(crate) fn type_check_mismatch_signal(&self) -> Result<(), error::TypeMismatch> {
-        if self.type_mismatches().is_empty() {
-            Ok(())
-        } else {
-            Err(error::TypeMismatch)
+        let type_mismatches = self.type_mismatches();
+
+        if type_mismatches.is_empty() {
+            return Ok(());
+        }
+
+        let cross_module_mismatches = type_mismatches
+            .iter()
+            .filter_map(|mismatch| self.extract_cross_module_mismatch(mismatch))
+            .collect();
+
+        Err(error::TypeMismatch(cross_module_mismatches))
+    }
+
+    fn extract_cross_module_mismatch(&self, mismatch: &Mismatch) -> Option<CrossModuleMismatch> {
+        let from_node = self.graph.node_weight(mismatch.from)?;
+        let to_node = self.graph.node_weight(mismatch.to)?;
+
+        #[cfg(debug_assertions)]
+        debug_assert!(matches!(from_node, Node::Import(_)));
+        #[cfg(debug_assertions)]
+        debug_assert!(matches!(to_node, Node::Export(_)));
+
+        match (from_node, to_node) {
+            (Node::Import(from), Node::Export(to)) => Some(CrossModuleMismatch {
+                importing: from.importing_module.clone(),
+                exporting: to.module.clone(),
+            }),
+            _ => None,
         }
     }
 }

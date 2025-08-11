@@ -35,7 +35,7 @@ pub enum Error {
     /// ```
     /// Would result in a `Set { A:f:i32 -> { B:f:i64, C:f:f64 } }`.
     #[error("Type Mismatch")]
-    TypeMismatch, // TODO: type mismatch should report conflicting types
+    TypeMismatch(Vec<crate::kinds::CrossModuleMismatch>),
 
     /// Name Clashes
     ///

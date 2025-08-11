@@ -15,6 +15,7 @@ use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory,
 use crate::merger::provenance_identifier::{Identifier, Old};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::dependency_reduction::ReducedDependencies;
+use crate::resolver::error::TypeMismatch;
 use crate::resolver::instantiated::{
     ImportDataFunction, ImportDataGlobal, ImportDataMemory, ImportDataTable,
 };
@@ -361,7 +362,7 @@ impl Resolver {
             LinkTypeMismatch::Ignore => linked.type_check_mismatch_break(),
             LinkTypeMismatch::Signal => linked
                 .type_check_mismatch_signal()
-                .map_err(|_| Error::TypeMismatch)?,
+                .map_err(|TypeMismatch(mismatches)| Error::TypeMismatch(mismatches))?,
         }
 
         let keeper = merge_options.keep_exports.as_ref().map(keep_retriever);
