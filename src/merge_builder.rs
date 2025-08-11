@@ -7,7 +7,8 @@ use walrus::Module;
 
 use crate::MergeOptions;
 use crate::error::Error;
-use crate::kinds::{FuncType, IdentifierItem, IdentifierModule};
+use crate::kinds::ClashesMap;
+use crate::kinds::{ConcreteExport, ExportKind, FuncType, IdentifierItem, IdentifierModule};
 use crate::merge_options::{ClashingExports, ExportIdentifier, KeepExports, LinkTypeMismatch};
 use crate::merge_options::{DEFAULT_RENAMER, RenameStrategy};
 use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable};
@@ -377,7 +378,7 @@ impl ClashingExports {
     fn handle(self, clashes_result: ClashesResult) -> Result<RenameMap, Error> {
         match (clashes_result, self) {
             (ClashesResult::None, _) => Ok(RenameMap::empty()),
-            (ClashesResult::Some(_), ClashingExports::Signal) => Err(Error::ExportNameClash),
+            (ClashesResult::Some(map), ClashingExports::Signal) => Err(Error::ExportNameClash(map)),
             (ClashesResult::Some(clashes_map), ClashingExports::Rename(rename_strategy)) => {
                 Ok(RenameMap::new(clashes_map, rename_strategy))
             }
@@ -423,20 +424,10 @@ impl RenameMap {
     }
 }
 
-type ClashesMap = Map<String, Vec<ConcreteExport>>;
-
 #[derive(Debug)]
 enum ClashesResult {
     None,
     Some(ClashesMap),
-}
-
-#[derive(Debug)]
-pub(crate) enum ConcreteExport {
-    Function,
-    Global,
-    Memory,
-    Table,
 }
 
 trait CollectExports {
@@ -444,25 +435,38 @@ trait CollectExports {
 }
 
 impl From<&instantiated::ExportFunction<OldIdFunction>> for ConcreteExport {
-    fn from(_: &instantiated::ExportFunction<OldIdFunction>) -> Self {
-        Self::Function
+    fn from(export: &instantiated::ExportFunction<OldIdFunction>) -> Self {
+        Self {
+            kind: ExportKind::Function,
+            exporting_module: export.module().identifier().to_string(),
+        }
     }
 }
+
 impl From<&instantiated::ExportGlobal<OldIdGlobal>> for ConcreteExport {
-    fn from(_: &instantiated::ExportGlobal<OldIdGlobal>) -> Self {
-        Self::Global
+    fn from(export: &instantiated::ExportGlobal<OldIdGlobal>) -> Self {
+        Self {
+            kind: ExportKind::Global,
+            exporting_module: export.module().identifier().to_string(),
+        }
     }
 }
 
 impl From<&instantiated::ExportMemory<OldIdMemory>> for ConcreteExport {
-    fn from(_: &instantiated::ExportMemory<OldIdMemory>) -> Self {
-        Self::Memory
+    fn from(export: &instantiated::ExportMemory<OldIdMemory>) -> Self {
+        Self {
+            kind: ExportKind::Memory,
+            exporting_module: export.module().identifier().to_string(),
+        }
     }
 }
 
 impl From<&instantiated::ExportTable<OldIdTable>> for ConcreteExport {
-    fn from(_: &instantiated::ExportTable<OldIdTable>) -> Self {
-        Self::Table
+    fn from(export: &instantiated::ExportTable<OldIdTable>) -> Self {
+        Self {
+            kind: ExportKind::Table,
+            exporting_module: export.module().identifier().to_string(),
+        }
     }
 }
 

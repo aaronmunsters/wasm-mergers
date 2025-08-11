@@ -1,7 +1,24 @@
+use std::collections::HashMap as Map;
 use std::{hash::Hash, marker::PhantomData};
 
 use derive_more::{Display, From, Into};
 use walrus::{LocalId, Module, TypeId, ValType};
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone, Copy)]
+pub enum ExportKind {
+    Function,
+    Global,
+    Memory,
+    Table,
+}
+
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct ConcreteExport {
+    pub kind: ExportKind,
+    pub exporting_module: String,
+}
+
+pub type ClashesMap = Map<String, Vec<ConcreteExport>>;
 
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub(crate) struct FuncType {

@@ -50,5 +50,5 @@ pub enum Error {
     /// If no other module imports `"f"`, then `"M"`
     /// would result in a `Map { "f" -> { A:f, B:f } }`.
     #[error("Export Name Clash")]
-    ExportNameClash, // TODO: clashing names should be reported + module
+    ExportNameClash(crate::kinds::ClashesMap),
 }
