@@ -21,8 +21,10 @@ pub type IdentifierTable = IdentifierItem<Table>;
 pub type IdentifierMemory = IdentifierItem<Memory>;
 pub type IdentifierGlobal = IdentifierItem<Global>;
 
+/// The rename strategy for exports.
 #[derive(Debug, Hash, Clone)]
 pub struct RenameStrategy {
+    pub first_occurrence: bool,
     pub functions: fn(&IdentifierModule, IdentifierFunction) -> IdentifierFunction,
     pub tables: fn(&IdentifierModule, IdentifierTable) -> IdentifierTable,
     pub memories: fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory,
@@ -131,6 +133,7 @@ pub struct MergeOptions {
 /// items by joining the namespace with the export name with `:` inbetween.
 /// See [`default_rename`](default_rename).
 pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
+    first_occurrence: true,
     functions: default_rename,
     tables: default_rename,
     memories: default_rename,

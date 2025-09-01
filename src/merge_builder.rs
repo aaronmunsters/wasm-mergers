@@ -372,55 +372,121 @@ impl Resolver {
 
 pub(crate) struct AllResolved {
     pub(crate) all_reduced: AllReducedDependencies,
-    pub(crate) rename_map: RenameMap,
+    pub(crate) rename_map: MergeRenamer,
 }
 
 impl ClashingExports {
-    fn handle(self, clashes_result: ClashesResult) -> Result<RenameMap, Error> {
-        match (clashes_result, self) {
-            (ClashesResult::None, _) => Ok(RenameMap::empty()),
-            (ClashesResult::Some(map), ClashingExports::Signal) => Err(Error::ExportNameClash(map)),
-            (ClashesResult::Some(clashes_map), ClashingExports::Rename(rename_strategy)) => {
-                Ok(RenameMap::new(clashes_map, rename_strategy))
-            }
+    fn handle(self, clashes_result: ClashesResult) -> Result<MergeRenamer, Error> {
+        let ClashesResult::Some(clashes) = clashes_result else {
+            return Ok(MergeRenamer::for_no_clashes_present());
+        };
+
+        match self {
+            ClashingExports::Rename(strategy) => Ok(MergeRenamer::new(clashes, strategy)),
+            ClashingExports::Signal => Err(Error::ExportNameClash(clashes)),
         }
     }
 }
 
-pub(crate) struct RenameMap {
+pub(crate) struct MergeRenamer {
     pub(crate) clashes_map: ClashesMap,
     pub(crate) rename_strategy: RenameStrategy,
+
+    /// During the growing phase, set of renamed names.
+    rename_encountered: Set<String>,
+
+    /// Allow constructor to express that clashes should be present.
+    #[cfg(debug_assertions)]
+    clashes_should_be_present: bool,
+    /// Growing set validating clashes will not occur if the flag
+    /// [`MergeRenamer::no_clashes_present`] is true.
+    #[cfg(debug_assertions)]
+    encountered: Set<String>,
 }
 
-impl RenameMap {
+impl MergeRenamer {
     pub(crate) fn new(clashes_map: ClashesMap, rename_strategy: RenameStrategy) -> Self {
         Self {
             clashes_map,
             rename_strategy,
+            rename_encountered: Default::default(),
+
+            #[cfg(debug_assertions)]
+            clashes_should_be_present: true,
+            #[cfg(debug_assertions)]
+            encountered: Default::default(),
         }
     }
 
-    pub(crate) fn empty() -> Self {
+    pub(crate) fn for_no_clashes_present() -> Self {
         let clashes_map = ClashesMap::new();
         let rename_strategy = DEFAULT_RENAMER; // ... unused anyway 🙈
+
         Self {
             clashes_map,
             rename_strategy,
+            rename_encountered: Default::default(),
+
+            #[cfg(debug_assertions)]
+            clashes_should_be_present: false,
+            #[cfg(debug_assertions)]
+            encountered: Default::default(),
         }
     }
 
-    /// If the `old_export` will be exported, then optionally provide a new name
-    pub(crate) fn rename_if_required<Kind: Clone, Type, Index>(
-        &self,
+    /// This method will compute the export name in the output module given the
+    /// configuration for merging. That is, if exports names may conflict, the
+    /// configuration will determine if and how a new export name is computed.
+    ///
+    /// See [`ClashingExports`] for the different configuration options.
+    pub(crate) fn compute_export_name<Kind: Clone, Type, Index>(
+        &mut self,
         old_export: &mut Export<Kind, Type, Index>,
         rename_fetcher: RenameRetriever<Kind>,
     ) {
+        #[cfg(debug_assertions)]
+        {
+            let clashes_not_present = !self.clashes_should_be_present;
+            if clashes_not_present {
+                let newly_inserted = self
+                    .encountered
+                    .insert(old_export.identifier.identifier().to_string());
+                debug_assert!(newly_inserted);
+            }
+        }
+
         let clashes = self
             .clashes_map
             .contains_key(old_export.identifier().identifier());
+
         if clashes {
+            let newly_inserted = self
+                .rename_encountered
+                .insert(String::from(old_export.identifier().identifier()));
+
+            // If renaming the first is not enabled but the insertion was new:
+            if !self.rename_strategy.first_occurrence && newly_inserted {
+                // Skip the rename
+                return;
+            }
+
+            // Perform the rename
             let renamer = rename_fetcher(&self.rename_strategy);
-            old_export.identifier = renamer(old_export.module(), old_export.identifier.clone());
+            old_export.identifier = renamer(old_export.module(), old_export.identifier().clone());
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+impl Drop for MergeRenamer {
+    /// Assert that the first phase & the effective merge agree on the outcome.
+    fn drop(&mut self) {
+        let rename_did_not_happen = self.rename_encountered.is_empty();
+        let rename_did_happen = !rename_did_not_happen;
+        if self.clashes_should_be_present {
+            debug_assert!(rename_did_happen);
+        } else {
+            debug_assert!(rename_did_not_happen);
         }
     }
 }

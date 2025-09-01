@@ -16,7 +16,7 @@ mod walrus_copy;
 use crate::error::Error;
 use crate::kinds::{FuncType, IdentifierModule};
 use crate::merge_builder::AllResolved;
-use crate::merge_builder::RenameMap;
+use crate::merge_builder::MergeRenamer;
 use crate::merge_builder::builder_instantiated::ReducedDependenciesFunction;
 use crate::merge_builder::builder_instantiated::ReducedDependenciesGlobal;
 use crate::merge_options::{IdentifierFunction, RenameStrategy};
@@ -154,7 +154,7 @@ impl Merger {
     }
 
     #[must_use]
-    pub(crate) fn new(resolved: AllResolved) -> Self {
+    pub(crate) fn new(mut resolved: AllResolved) -> Self {
         // Create new empty Wasm module
         let mut merged = Module::default();
         let mut mapping = Mapping::default();
@@ -165,12 +165,12 @@ impl Merger {
         resolved
             .all_reduced
             .functions
-            .join(&mut merged, &mut mapping, &resolved.rename_map);
+            .join(&mut merged, &mut mapping, &mut resolved.rename_map);
 
         resolved
             .all_reduced
             .globals
-            .join(&mut merged, &mut mapping, &resolved.rename_map);
+            .join(&mut merged, &mut mapping, &mut resolved.rename_map);
 
         Self {
             merged,
@@ -587,7 +587,7 @@ impl Merger {
                     if remaining {
                         self.all_resolved
                             .rename_map
-                            .rename_if_required(&mut old_export, RenameStrategy::tables);
+                            .compute_export_name(&mut old_export, RenameStrategy::tables);
                         self.merged.exports.add(
                             old_export.identifier().identifier(),
                             ExportItem::Table(*new_id),
@@ -628,7 +628,7 @@ impl Merger {
                     if remaining {
                         self.all_resolved
                             .rename_map
-                            .rename_if_required(&mut old_export, RenameStrategy::memories);
+                            .compute_export_name(&mut old_export, RenameStrategy::memories);
                         self.merged.exports.add(
                             old_export.identifier().identifier(),
                             ExportItem::Memory(*new_id),
@@ -669,7 +669,7 @@ impl Merger {
                     if remaining {
                         self.all_resolved
                             .rename_map
-                            .rename_if_required(&mut old_export, RenameStrategy::globals);
+                            .compute_export_name(&mut old_export, RenameStrategy::globals);
                         self.merged.exports.add(
                             old_export.identifier().identifier(),
                             ExportItem::Global(*new_id),
@@ -782,11 +782,11 @@ impl CopyForMerger for ConstExpr {
 /* [1]: This case is impossible since in an earlier pass clashing names had been covered. */
 
 trait MergedJoinable {
-    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap);
+    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &mut MergeRenamer);
 }
 
 impl MergedJoinable for ReducedDependenciesFunction {
-    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
+    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &mut MergeRenamer) {
         // 1. Include all remaining imports:
         for old_import in &self.remaining_imports {
             let new_import = Merger::add_new_import_function(module, old_import);
@@ -822,7 +822,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
             let reduced = mapping.funcs.get(&old_export.to_mapping_ref());
 
             let mut old_export = old_export.clone();
-            rename_map.rename_if_required(&mut old_export, RenameStrategy::functions);
+            rename_map.compute_export_name(&mut old_export, RenameStrategy::functions);
 
             // TODO: I did this multiple times, unwrapping should be turned into an error throwing?
             // The reduced should be present in the new mapping
@@ -841,7 +841,7 @@ impl MergedJoinable for ReducedDependenciesFunction {
 }
 
 impl MergedJoinable for ReducedDependenciesGlobal {
-    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &RenameMap) {
+    fn join(&self, module: &mut Module, mapping: &mut Mapping, rename_map: &mut MergeRenamer) {
         // 1. Include all remaining imports:
         for old_import in &self.remaining_imports {
             let new_import = Merger::add_new_import_global(module, old_import);
