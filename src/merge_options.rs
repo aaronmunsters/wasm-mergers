@@ -153,7 +153,7 @@ pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
 /// (mod (export "A:f" x)
 ///      (export "B:f" y))
 /// ```
-fn default_rename<T: Into<String> + From<String>>(m: &IdentifierModule, v: T) -> T {
+pub fn default_rename<T: Into<String> + From<String>>(m: &IdentifierModule, v: T) -> T {
     let v = v.into();
     format!("{m}:{v}").into()
 }
