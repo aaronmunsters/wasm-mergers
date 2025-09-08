@@ -409,12 +409,12 @@ impl MergeRenamer {
         Self {
             clashes_map,
             rename_strategy,
-            rename_encountered: Default::default(),
+            rename_encountered: Set::default(),
 
             #[cfg(debug_assertions)]
             clashes_should_be_present: true,
             #[cfg(debug_assertions)]
-            encountered: Default::default(),
+            encountered: Set::default(),
         }
     }
 
@@ -425,12 +425,12 @@ impl MergeRenamer {
         Self {
             clashes_map,
             rename_strategy,
-            rename_encountered: Default::default(),
+            rename_encountered: Set::default(),
 
             #[cfg(debug_assertions)]
             clashes_should_be_present: false,
             #[cfg(debug_assertions)]
-            encountered: Default::default(),
+            encountered: Set::default(),
         }
     }
 
