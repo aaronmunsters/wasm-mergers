@@ -99,6 +99,7 @@ impl<Kind, Type, Index> Export<Kind, Type, Index> {
 
 #[rustfmt::skip]
 pub(crate) mod instantiated {
+    // TODO: remove dead code inside this mod
     use super::{Debug, Hash};
     use super::{Export, Import, Local};
     use super::{FuncType, Locals, RefType, ValType};
@@ -143,15 +144,15 @@ pub(crate) mod instantiated {
 
     /* -- Imports -- */
     pub(crate) type ImportFunction<Id> = Import<KindFunction, TypeFunction, Id, ImportDataFunction>;
-    pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id, ImportDataTable   >;
-    pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id, ImportDataMemory  >;
+    // pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id, ImportDataTable   >;
+    // pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id, ImportDataMemory  >;
     pub(crate) type ImportGlobal<Id>   = Import<KindGlobal,   TypeGlobal,   Id, ImportDataGlobal  >;
 
     /* -- Locals -- */
     pub(crate) type LocalFunction<Id> = Local<KindFunction, TypeFunction, Id, LocalDataFunction>;
-    pub(crate) type LocalTable<Id>    = Local<KindTable   , TypeTable   , Id, LocalDataTable   >;
-    pub(crate) type LocalMemory<Id>   = Local<KindMemory  , TypeMemory  , Id, LocalDataMemory  >;
-    pub(crate) type LocalGlobal<Id>   = Local<KindGlobal  , TypeGlobal  , Id, LocalDataGlobal  >;
+    // pub(crate) type LocalTable<Id>    = Local<KindTable   , TypeTable   , Id, LocalDataTable   >;
+    // pub(crate) type LocalMemory<Id>   = Local<KindMemory  , TypeMemory  , Id, LocalDataMemory  >;
+    // pub(crate) type LocalGlobal<Id>   = Local<KindGlobal  , TypeGlobal  , Id, LocalDataGlobal  >;
 
     /* -- Exports -- */
     pub(crate) type ExportFunction<Id> = Export<KindFunction, TypeFunction, Id>;
@@ -168,31 +169,6 @@ impl<Id> instantiated::ImportGlobal<Id> {
     pub(crate) fn shared(&self) -> bool {
         self.data.shared
     }
-}
-
-/* Unioned Imports, Locals, Exports */
-#[allow(unused)] // TODO: fix / remove
-pub(crate) enum UnionImports<Id> {
-    Function(instantiated::ImportFunction<Id>),
-    Table(instantiated::ImportTable<Id>),
-    Memory(instantiated::ImportMemory<Id>),
-    Global(instantiated::ImportGlobal<Id>),
-}
-
-#[allow(unused)] // TODO: fix / remove
-pub(crate) enum UnionLocals<Id> {
-    Function(instantiated::LocalFunction<Id>),
-    Table(instantiated::LocalTable<Id>),
-    Memory(instantiated::LocalMemory<Id>),
-    Global(instantiated::LocalGlobal<Id>),
-}
-
-#[allow(unused)] // TODO: fix / remove
-pub(crate) enum UnionExports<Id> {
-    Function(instantiated::ExportFunction<Id>),
-    Table(instantiated::ExportTable<Id>),
-    Memory(instantiated::ExportMemory<Id>),
-    Global(instantiated::ExportGlobal<Id>),
 }
 
 #[derive(Debug, Hash, PartialEq, Eq, Clone)]
