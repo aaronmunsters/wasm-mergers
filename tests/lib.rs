@@ -742,7 +742,7 @@ fn test_multi_memory() -> Result<(), Error> {
 
 #[allow(clippy::too_many_lines)] // TODO: fix / remove
 #[test]
-fn test() {
+fn test_smithed_modules() {
     use arbitrary::Unstructured;
     use rand::{Rng, SeedableRng};
     use rayon::prelude::*;
