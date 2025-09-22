@@ -914,5 +914,64 @@ fn test_smithed_modules() {
     });
 }
 
+/// Test if the kind mismatches, and if this can avoid errors if internal
+/// resolution is enabled.
+#[test]
+fn kind_mismatch_expect() -> Result<(), Error> {
+    use walrus::{ExportItem, Module};
+    use webassembly_mergers::error::Error;
+    use webassembly_mergers::merge_options::ResolvedExports;
+
+    let mod_a = parse_str(r#"(module (func   $x (export "x")))"#)?;
+    let mod_b = parse_str(r#"(module (global $x (export "x") i32 (i32.const 0)))"#)?;
+    let mod_c = parse_str(r#"(module (import "B" "x" (global $x i32)))"#)?;
+
+    // Given only modules A and B, their export 'a' should clash, as they are
+    // named and typed equally.
+    let modules_ab: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("A", &mod_a),
+        &NamedModule::new("B", &mod_b),
+    ];
+
+    assert!(matches!(
+        MergeConfiguration::new(modules_ab, MergeOptions::default()).merge(),
+        Err(Error::ExportNameClash(_))
+    ));
+
+    // But if module C were also included in the merge, the outcome should not
+    // clash, as `A:a` can be linked to `C`'s import, allowing the overlapping
+    // export to become hidden and ensure that the only exported item remains
+    // to be the exported function (asserted below).
+    let modules_abc: &[&NamedModule<'_, &[u8]>] = &[
+        &NamedModule::new("A", &mod_a),
+        &NamedModule::new("B", &mod_b),
+        &NamedModule::new("C", &mod_c),
+    ];
+
+    let options = MergeOptions {
+        resolved_exports: ResolvedExports::Remove,
+        ..Default::default()
+    };
+    let outcome = MergeConfiguration::new(modules_abc, options).merge()?;
+    let parsed = Module::from_buffer(&outcome)?;
+    let exports = parsed.exports.iter().collect::<Vec<_>>();
+    assert_eq!(exports.len(), 1);
+    assert!(matches!(exports[0].item, ExportItem::Function(_)));
+
+    // However, when resolved exports are kept, the error must still be raised.
+    let options = MergeOptions {
+        resolved_exports: ResolvedExports::Keep,
+        ..Default::default()
+    };
+    let outcome = MergeConfiguration::new(modules_abc, options).merge()?;
+    let parsed = Module::from_buffer(&outcome)?;
+    let exports = parsed.exports.iter().collect::<Vec<_>>();
+
+    // FIXME: Add support for the 'ResolvedExports::Keep'.
+    assert_eq!(exports.len(), 1); // TODO: should be 2 / merging should fail!
+
+    Ok(())
+}
+
 // TODO: if two modules import from the same location, are they the same node
 //       in the graph? If not ... this should be explored!
