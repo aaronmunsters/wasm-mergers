@@ -2,6 +2,13 @@
 name = "webassembly-mergers"
 version = "0.1.0"
 edition = "2024"
+license = "MIT"
+keywords = ["wasm", "webassembly", "merge", "merger", "linker", "bundler"]
+categories = ["wasm", "development-tools"]
+description = """
+A Rust crate developed to merge WebAssembly binaries.
+Similar to a linker or a bundler for JavaScript modules.
+"""
 
 [dependencies]
 anyhow = { version = "1.0.100" }
