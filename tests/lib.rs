@@ -7,6 +7,7 @@ use webassembly_mergers::merge_options::DEFAULT_RENAMER;
 use webassembly_mergers::merge_options::{ClashingExports, KeepExports, MergeOptions};
 use webassembly_mergers::{MergeConfiguration, NamedModule};
 
+mod smithed_tests;
 mod wasmtime_macros; // Bring macros in scope
 
 fn iter_permutations<'a>(
@@ -179,19 +180,7 @@ fn test_earmark() -> Result<(), Error> {
     .ok_or(Error::msg("Needle not found"))
 }
 
-/// Verifies that merging a set of modules that forms a cycle
-/// of mutually recursive function calls works.
-///
-///  ```txt
-///  func_a → func_b → func_c → func_d → func_e
-///     ↑                                  |
-///     └──────────────────────────────────┘
-///          [Mutual recursion cycle]
-///  ```
-#[allow(clippy::too_many_lines)] // TODO: fix / remove
-#[test]
-fn merge_cycle_chain() -> Result<(), Error> {
-    const WAT_MOD_ABCDE: &str = r#"
+const WAT_MOD_ABCDE: &str = r#"
       (module
         (func $func_a (param $n i32) (result i32)
           (if (result i32)
@@ -225,7 +214,7 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_a" (func $func_a)))
       "#;
 
-    const WAT_MOD_A: &str = r#"
+const WAT_MOD_A: &str = r#"
       (module
         (import "WAT_MOD_B" "func_b" (func $func_b (param i32) (result i32)))
 
@@ -237,7 +226,7 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_a" (func $func_a)))
       "#;
 
-    const WAT_MOD_B: &str = r#"
+const WAT_MOD_B: &str = r#"
       (module
         (import "WAT_MOD_C" "func_c" (func $func_c (param i32) (result i32)))
 
@@ -249,7 +238,7 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_b" (func $func_b)))
       "#;
 
-    const WAT_MOD_C: &str = r#"
+const WAT_MOD_C: &str = r#"
       (module
         (import "WAT_MOD_D" "func_d" (func $func_d (param i32) (result i32)))
 
@@ -261,7 +250,7 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_c" (func $func_c)))
       "#;
 
-    const WAT_MOD_D: &str = r#"
+const WAT_MOD_D: &str = r#"
       (module
         (import "WAT_MOD_E" "func_e" (func $func_e (param i32) (result i32)))
 
@@ -273,7 +262,7 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_d" (func $func_d)))
       "#;
 
-    const WAT_MOD_E: &str = r#"
+const WAT_MOD_E: &str = r#"
       (module
         (import "WAT_MOD_A" "func_a" (func $func_a (param i32) (result i32)))
 
@@ -285,6 +274,17 @@ fn merge_cycle_chain() -> Result<(), Error> {
         (export "func_e" (func $func_e)))
       "#;
 
+/// Verifies that merging a set of modules that forms a cycle
+/// of mutually recursive function calls works.
+///
+///  ```txt
+///  func_a → func_b → func_c → func_d → func_e
+///     ↑                                  |
+///     └──────────────────────────────────┘
+///          [Mutual recursion cycle]
+///  ```
+#[test]
+fn merge_cycle_chain() -> Result<(), Error> {
     let manual_merged = { parse_str(WAT_MOD_ABCDE)? };
 
     let wat_mod_a = parse_str(WAT_MOD_A)?;
@@ -738,180 +738,6 @@ fn test_multi_memory() -> Result<(), Error> {
     }
 
     Ok(())
-}
-
-#[allow(clippy::too_many_lines)] // TODO: fix / remove
-#[test]
-fn test_smithed_modules() {
-    use arbitrary::Unstructured;
-    use rand::{Rng, SeedableRng};
-    use rayon::prelude::*;
-    use wasm_smith::{Config, Module as WasmSmithModule};
-
-    struct PreMergeOutcome {
-        args: Vec<wasmtime::Val>,
-        results: Vec<wasmtime::Val>,
-        function_name: String,
-    }
-
-    struct ExpectedModuleOutcomes {
-        module: Vec<u8>,
-        expected_outcomes: Vec<PreMergeOutcome>,
-    }
-
-    const MAX_SEED: u64 = 100;
-    const WINDOW_NAMES: &[&str] = &["a", "b", "c", "d"];
-
-    let assertions: Vec<_> = (0..MAX_SEED)
-        .into_par_iter()
-        .filter_map(|seed| {
-            println!("SEED = {seed}");
-            let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(seed);
-            let mut random_sequence = [0_u8; 2_usize.pow(10)];
-            for value in &mut random_sequence {
-                *value = rng.random::<u8>();
-            }
-
-            let mut random = Unstructured::new(&random_sequence);
-
-            let config = Config {
-                gc_enabled: false,
-                exceptions_enabled: false,
-                min_exports: 1,
-                max_imports: 0,
-                min_memories: 1,
-                min_data_segments: 1,
-                min_element_segments: 1,
-                min_tables: 1,
-                bulk_memory_enabled: true,
-                threads_enabled: true,
-                simd_enabled: true,
-                shared_everything_threads_enabled: true,
-                ..Default::default()
-            };
-
-            let Ok(mut module) = WasmSmithModule::new(config, &mut random) else {
-                return None;
-            };
-
-            module.ensure_termination(10_000).unwrap();
-            let module_bytes = module.to_bytes();
-
-            // Instantiate merged module (should be self-contained)
-            let mut store = Store::<()>::default();
-            let engine = store.engine();
-            let module = Module::from_binary(engine, &module_bytes).unwrap();
-            let Ok(instance) = Instance::new(&mut store, &module, &[]) else {
-                return None;
-            };
-
-            let mut random_val = |p| match p {
-                ValType::I32 => Some(rng.random::<i32>().into()),
-                ValType::I64 => Some(rng.random::<i64>().into()),
-                ValType::F32 => Some(rng.random::<f32>().into()),
-                ValType::F64 => Some(rng.random::<f64>().into()),
-                _ => None,
-            };
-
-            let call_results: Vec<PreMergeOutcome> = module
-                .exports()
-                .filter_map(|export| match export.ty() {
-                    ExternType::Func(func_type) => {
-                        let args: Vec<_> = func_type
-                            .params()
-                            .map(&mut random_val)
-                            .collect::<Option<_>>()?;
-                        let mut results: Vec<_> = func_type
-                            .results()
-                            .map(&mut random_val)
-                            .collect::<Option<_>>()?;
-                        instance
-                            .get_func(&mut store, export.name())
-                            .unwrap()
-                            .call(&mut store, &args, &mut results)
-                            .ok()
-                            .map(|()| PreMergeOutcome {
-                                args,
-                                results,
-                                function_name: export.name().to_string(),
-                            })
-                    }
-                    ExternType::Global(_global_type) => None,
-                    ExternType::Table(_table_type) => None,
-                    ExternType::Memory(_memory_type) => None,
-                    ExternType::Tag(_tag_type) => None,
-                })
-                .collect();
-
-            Some(ExpectedModuleOutcomes {
-                module: module_bytes,
-                expected_outcomes: call_results,
-            })
-        })
-        .collect();
-
-    let window_width: usize = WINDOW_NAMES.len();
-    assertions.windows(window_width).for_each(|window| {
-        let modules: Vec<_> = window.iter().zip(WINDOW_NAMES).collect();
-        let named_modules: Vec<_> = modules
-            .iter()
-            .map(|(ExpectedModuleOutcomes { module, .. }, name_space)| {
-                NamedModule::new(name_space, &module[..])
-            })
-            .collect();
-        let refs = named_modules.iter().collect::<Vec<_>>();
-        let modules: &[&NamedModule<'_, &[u8]>] = &refs[..];
-        let merge_options = MergeOptions {
-            clashing_exports: ClashingExports::Rename(DEFAULT_RENAMER),
-            ..Default::default()
-        };
-        let mut merge_configuration =
-            webassembly_mergers::MergeConfiguration::new(modules, merge_options);
-        let merged = merge_configuration.merge();
-
-        // Failing to parse is something related to the crates `wasm-smith` <~> `walrus`
-        if let Err(webassembly_mergers::error::Error::Parse(_)) = merged {
-            return;
-        }
-
-        // Unwrap the module, asserting it exists
-        let merged = merged.unwrap();
-
-        // Instantiate merged module (should be self-contained)
-        let mut store = Store::<()>::default();
-        let engine = store.engine();
-        let module = Module::from_binary(engine, &merged).unwrap();
-        let instance = Instance::new(&mut store, &module, &[]).unwrap();
-
-        for asserted_module in window {
-            asserted_module
-                .expected_outcomes
-                .iter()
-                .for_each(|assertion| {
-                    // TODO:
-                    // Currently, we apply the `if let Some` strategy.
-                    // This allows that a function cannot be found anymore.
-                    // This should change to use a 'renamed-map' to retrieve potentially renamed exports!
-                    if let Some(func) = instance.get_func(&mut store, &assertion.function_name) {
-                        let results_assertion = assertion.results.clone();
-                        let mut results_actual = assertion.results.clone();
-                        func.call(&mut store, &assertion.args, &mut results_actual)
-                            .unwrap();
-                        results_actual.iter().zip(results_assertion).for_each(
-                        |(result_actual, result_asserted)| match (result_actual, result_asserted) {
-                            (Val::I32(x), Val::I32(y)) => assert_eq!(*x, y),
-                            (Val::I64(x), Val::I64(y)) => assert_eq!(*x, y),
-                            (Val::F32(x), Val::F32(y)) => assert_eq!(*x, y),
-                            (Val::F64(x), Val::F64(y)) => assert_eq!(*x, y),
-                            _ => panic!(
-                                "Mismatched Val variants: {result_actual:?} vs {result_asserted:?}"
-                            ),
-                        },
-                    );
-                    }
-                });
-        }
-    });
 }
 
 /// Test if the kind mismatches, and if this can avoid errors if internal
