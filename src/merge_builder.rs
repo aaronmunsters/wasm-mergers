@@ -4,6 +4,8 @@ use std::marker::PhantomData;
 
 use anyhow::anyhow;
 use walrus::Module;
+#[cfg(debug_assertions)]
+use walrus::{FunctionId, GlobalId, ImportId, MemoryId, TableId};
 
 use crate::MergeOptions;
 use crate::error::Error;
@@ -72,6 +74,262 @@ impl Resolver {
         }
     }
 
+    pub(crate) fn consider(&mut self, module: &NamedParsedModule<'_>) -> Result<(), Error> {
+        let NamedParsedModule { name, module } = module;
+        let considering_module: IdentifierModule = (*name).to_string().into();
+
+        #[cfg(debug_assertions)]
+        let (
+            mut covered_imports_function,
+            mut covered_imports_table,
+            mut covered_imports_memory,
+            mut covered_imports_global,
+        ) = (Set::new(), Set::new(), Set::new(), Set::new());
+
+        self.consider_imports(
+            &considering_module,
+            module,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_function,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_table,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_memory,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_global,
+        );
+
+        self.consider_functions(
+            &considering_module,
+            module,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_function,
+        )?;
+
+        self.consider_globals(
+            &considering_module,
+            module,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_global,
+        );
+
+        self.consider_memories(
+            &considering_module,
+            module,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_memory,
+        );
+
+        self.consider_tables(
+            &considering_module,
+            module,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_table,
+        );
+
+        self.consider_exports(&considering_module, module);
+
+        Ok(())
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    fn consider_imports<'a>(
+        &mut self,
+        considering_module: &IdentifierModule,
+        module: &'a Module,
+        #[cfg(debug_assertions)] covered_imports_function: &mut Set<(&'a FunctionId, ImportId)>,
+        #[cfg(debug_assertions)] covered_imports_table: &mut Set<(&'a TableId, ImportId)>,
+        #[cfg(debug_assertions)] covered_imports_memory: &mut Set<(&'a MemoryId, ImportId)>,
+        #[cfg(debug_assertions)] covered_imports_global: &mut Set<(&'a GlobalId, ImportId)>,
+    ) {
+        for import in module.imports.iter() {
+            match &import.kind {
+                walrus::ImportKind::Function(old_id_function) => {
+                    #[cfg(debug_assertions)]
+                    covered_imports_function.insert((old_id_function, import.id()));
+                    let func = module.funcs.get(*old_id_function);
+                    let ty = FuncType::from_types(func.ty(), &module.types);
+                    let old_id: OldIdFunction = (*old_id_function).into();
+                    let data = ImportDataFunction;
+                    let import = Self::import_from(import, considering_module, old_id, ty, data);
+                    self.function.add_import(import);
+                }
+                walrus::ImportKind::Table(old_id_table) => {
+                    #[cfg(debug_assertions)]
+                    covered_imports_table.insert((old_id_table, import.id()));
+                    let table = module.tables.get(*old_id_table);
+                    let ty = table.element_ty;
+                    let old_id: OldIdTable = (*old_id_table).into();
+                    let data = ImportDataTable;
+                    let import = Self::import_from(import, considering_module, old_id, ty, data);
+                    self.table.add_import(import);
+                }
+                walrus::ImportKind::Memory(old_id_memory) => {
+                    #[cfg(debug_assertions)]
+                    covered_imports_memory.insert((old_id_memory, import.id()));
+                    let old_id: OldIdMemory = (*old_id_memory).into();
+                    let data = ImportDataMemory;
+                    let import = Self::import_from(import, considering_module, old_id, (), data);
+                    self.memory.add_import(import);
+                }
+                walrus::ImportKind::Global(old_id_global) => {
+                    #[cfg(debug_assertions)]
+                    covered_imports_global.insert((old_id_global, import.id()));
+                    let global = module.globals.get(*old_id_global);
+                    let ty = global.ty;
+                    let old_id: OldIdGlobal = (*old_id_global).into();
+                    let data = ImportDataGlobal {
+                        mutable: global.mutable,
+                        shared: global.shared,
+                    };
+                    let import = Self::import_from(import, considering_module, old_id, ty, data);
+                    self.global.add_import(import);
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    fn consider_functions<'a>(
+        &mut self,
+        considering_module: &IdentifierModule,
+        module: &'a Module,
+        #[cfg(debug_assertions)] covered_imports_function: &mut Set<(&'a FunctionId, ImportId)>,
+    ) -> Result<(), Error> {
+        // Process functions
+        for function in module.funcs.iter() {
+            match &function.kind {
+                walrus::FunctionKind::Local(local_function) => {
+                    let locals = local_function
+                        .args
+                        .iter()
+                        .map(|local| {
+                            let local = module.locals.get(*local);
+                            (local.id(), local.ty())
+                        })
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice();
+
+                    let local = Local {
+                        module: considering_module.clone(),
+                        index: function.id().into(),
+                        kind: PhantomData,
+                        ty: FuncType::from_types(local_function.ty(), &module.types),
+                        data: locals.clone(),
+                    };
+                    self.function.add_local(local);
+                }
+                walrus::FunctionKind::Import(i) => {
+                    let _ = &i;
+                    #[cfg(debug_assertions)]
+                    debug_assert!(covered_imports_function.contains(&(&function.id(), i.import)));
+                }
+                walrus::FunctionKind::Uninitialized(_) => {
+                    return Err(Error::Parse(anyhow!(
+                        "walrus::FunctionKind::Uninitialized during parsing of {considering_module}",
+                    )));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    fn consider_globals<'a>(
+        &mut self,
+        considering_module: &IdentifierModule,
+        module: &'a Module,
+        #[cfg(debug_assertions)] covered_imports_global: &mut Set<(&'a GlobalId, ImportId)>,
+    ) {
+        for global in module.globals.iter() {
+            match &global.kind {
+                walrus::GlobalKind::Local(local_global) => {
+                    let _ = local_global; // Particular expression is not of interest @ consideration time
+                    let local =
+                        Self::local_from(considering_module, global.id().into(), global.ty, ());
+                    self.global.add_local(local);
+                }
+                walrus::GlobalKind::Import(i) => {
+                    let _ = &i;
+                    #[cfg(debug_assertions)]
+                    debug_assert!(covered_imports_global.contains(&(&global.id(), *i)));
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    fn consider_memories<'a>(
+        &mut self,
+        considering_module: &IdentifierModule,
+        module: &'a Module,
+        #[cfg(debug_assertions)] covered_imports_memory: &mut Set<(&'a MemoryId, ImportId)>,
+    ) {
+        for memory in module.memories.iter() {
+            if let Some(i) = &memory.import {
+                let _ = &i;
+                #[cfg(debug_assertions)]
+                debug_assert!(covered_imports_memory.contains(&(&memory.id(), *i)));
+            } else {
+                let local = Self::local_from(considering_module, memory.id().into(), (), ());
+                self.memory.add_local(local);
+            }
+        }
+    }
+
+    #[allow(clippy::needless_lifetimes)]
+    fn consider_tables<'a>(
+        &mut self,
+        considering_module: &IdentifierModule,
+        module: &'a Module,
+        #[cfg(debug_assertions)] covered_imports_table: &mut Set<(&'a TableId, ImportId)>,
+    ) {
+        for table in module.tables.iter() {
+            if let Some(i) = &table.import {
+                let _ = &i;
+                #[cfg(debug_assertions)]
+                debug_assert!(covered_imports_table.contains(&(&table.id(), *i)));
+            } else {
+                let local =
+                    Self::local_from(considering_module, table.id().into(), table.element_ty, ());
+                self.table.add_local(local);
+            }
+        }
+    }
+
+    fn consider_exports(&mut self, considering_module: &IdentifierModule, module: &Module) {
+        for export in module.exports.iter() {
+            match &export.item {
+                walrus::ExportItem::Function(old_id_function) => {
+                    let func = module.funcs.get(*old_id_function);
+                    let old_id_function: Identifier<Old, _> = (*old_id_function).into();
+                    let ty = FuncType::from_types(func.ty(), &module.types);
+                    let export = Self::export_from(export, considering_module, old_id_function, ty);
+                    self.function.add_export(export);
+                }
+                walrus::ExportItem::Table(old_id_table) => {
+                    let table = module.tables.get(*old_id_table);
+                    let old_id_table: Identifier<Old, _> = (*old_id_table).into();
+                    let ty = table.element_ty;
+                    let export = Self::export_from(export, considering_module, old_id_table, ty);
+                    self.table.add_export(export);
+                }
+                walrus::ExportItem::Memory(old_id_memory) => {
+                    let old_id_memory: Identifier<Old, _> = (*old_id_memory).into();
+                    let export = Self::export_from(export, considering_module, old_id_memory, ());
+                    self.memory.add_export(export);
+                }
+                walrus::ExportItem::Global(old_id_global) => {
+                    let global = module.globals.get(*old_id_global);
+                    let old_id_global: Identifier<Old, _> = (*old_id_global).into();
+                    let ty = global.ty;
+                    let export = Self::export_from(export, considering_module, old_id_global, ty);
+                    self.global.add_export(export);
+                }
+            }
+        }
+    }
+
     fn import_from<Kind, Type, Index, ImportData>(
         import: &walrus::Import,
         module: &IdentifierModule,
@@ -118,196 +376,6 @@ impl Resolver {
             kind: PhantomData,
             ty,
         }
-    }
-
-    #[allow(clippy::too_many_lines)] // TODO: fix / remove
-    pub(crate) fn consider(&mut self, module: &NamedParsedModule<'_>) -> Result<(), Error> {
-        let NamedParsedModule {
-            name: considering_module,
-            module,
-        } = module;
-        let Module {
-            types: considering_types,
-            imports: considering_imports,
-            funcs: considering_funcs,
-            globals: considering_globals,
-            memories: considering_memories,
-            tables: considering_tables,
-            exports: considering_exports,
-            locals: considering_locals,
-            ..
-        } = module;
-
-        let considering_module: IdentifierModule = (*considering_module).to_string().into();
-
-        #[cfg(debug_assertions)]
-        let (
-            mut covered_imports_function,
-            mut covered_imports_table,
-            mut covered_imports_memory,
-            mut covered_imports_global,
-        ) = (Set::new(), Set::new(), Set::new(), Set::new());
-
-        // Process all imports
-        for import in considering_imports.iter() {
-            match &import.kind {
-                walrus::ImportKind::Function(old_id_function) => {
-                    #[cfg(debug_assertions)]
-                    covered_imports_function.insert((old_id_function, import.id()));
-                    let func = considering_funcs.get(*old_id_function);
-                    let ty = FuncType::from_types(func.ty(), considering_types);
-                    let old_id: OldIdFunction = (*old_id_function).into();
-                    let data = ImportDataFunction;
-                    let import: crate::resolver::instantiated::ImportFunction<OldIdFunction> =
-                        Self::import_from(import, &considering_module, old_id, ty, data);
-                    self.function.add_import(import);
-                }
-                walrus::ImportKind::Table(old_id_table) => {
-                    #[cfg(debug_assertions)]
-                    covered_imports_table.insert((old_id_table, import.id()));
-                    let table = considering_tables.get(*old_id_table);
-                    let ty = table.element_ty;
-                    let old_id: OldIdTable = (*old_id_table).into();
-                    let data = ImportDataTable;
-                    let import = Self::import_from(import, &considering_module, old_id, ty, data);
-                    self.table.add_import(import);
-                }
-                walrus::ImportKind::Memory(old_id_memory) => {
-                    #[cfg(debug_assertions)]
-                    covered_imports_memory.insert((old_id_memory, import.id()));
-                    let old_id: OldIdMemory = (*old_id_memory).into();
-                    let data = ImportDataMemory;
-                    let import = Self::import_from(import, &considering_module, old_id, (), data);
-                    self.memory.add_import(import);
-                }
-                walrus::ImportKind::Global(old_id_global) => {
-                    #[cfg(debug_assertions)]
-                    covered_imports_global.insert((old_id_global, import.id()));
-                    let global = considering_globals.get(*old_id_global);
-                    let ty = global.ty;
-                    let old_id: OldIdGlobal = (*old_id_global).into();
-                    let data = ImportDataGlobal {
-                        mutable: global.mutable,
-                        shared: global.shared,
-                    };
-                    let import = Self::import_from(import, &considering_module, old_id, ty, data);
-                    self.global.add_import(import);
-                }
-            }
-        }
-
-        // Process functions
-        for function in considering_funcs.iter() {
-            match &function.kind {
-                walrus::FunctionKind::Local(local_function) => {
-                    let locals = local_function
-                        .args
-                        .iter()
-                        .map(|local| {
-                            let local = considering_locals.get(*local);
-                            (local.id(), local.ty())
-                        })
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice();
-
-                    let local = Local {
-                        module: considering_module.clone(),
-                        index: function.id().into(),
-                        kind: PhantomData,
-                        ty: FuncType::from_types(local_function.ty(), considering_types),
-                        data: locals.clone(),
-                    };
-                    self.function.add_local(local);
-                }
-                walrus::FunctionKind::Import(i) => {
-                    let _ = &i;
-                    #[cfg(debug_assertions)]
-                    debug_assert!(covered_imports_function.contains(&(&function.id(), i.import)));
-                }
-                walrus::FunctionKind::Uninitialized(_) => {
-                    return Err(Error::Parse(anyhow!(
-                        "walrus::FunctionKind::Uninitialized during parsing of {considering_module}",
-                    )));
-                }
-            }
-        }
-
-        // Process globals
-        for global in considering_globals.iter() {
-            match &global.kind {
-                walrus::GlobalKind::Local(local_global) => {
-                    let _ = local_global; // Particular expression is not of interest
-                    let local =
-                        Self::local_from(&considering_module, global.id().into(), global.ty, ());
-                    self.global.add_local(local);
-                }
-                walrus::GlobalKind::Import(i) => {
-                    let _ = &i;
-                    #[cfg(debug_assertions)]
-                    debug_assert!(covered_imports_global.contains(&(&global.id(), *i)));
-                }
-            }
-        }
-
-        // Process memories
-        for memory in considering_memories.iter() {
-            if let Some(i) = &memory.import {
-                let _ = &i;
-                #[cfg(debug_assertions)]
-                debug_assert!(covered_imports_memory.contains(&(&memory.id(), *i)));
-            } else {
-                let local = Self::local_from(&considering_module, memory.id().into(), (), ());
-                self.memory.add_local(local);
-            }
-        }
-
-        // Process tables
-        for table in considering_tables.iter() {
-            if let Some(i) = &table.import {
-                let _ = &i;
-                #[cfg(debug_assertions)]
-                debug_assert!(covered_imports_table.contains(&(&table.id(), *i)));
-            } else {
-                let local =
-                    Self::local_from(&considering_module, table.id().into(), table.element_ty, ());
-                self.table.add_local(local);
-            }
-        }
-
-        // Process exports
-        for export in considering_exports.iter() {
-            match &export.item {
-                walrus::ExportItem::Function(old_id_function) => {
-                    let func = considering_funcs.get(*old_id_function);
-                    let old_id_function: Identifier<Old, _> = (*old_id_function).into();
-                    let ty = FuncType::from_types(func.ty(), considering_types);
-                    let export =
-                        Self::export_from(export, &considering_module, old_id_function, ty);
-                    self.function.add_export(export);
-                }
-                walrus::ExportItem::Table(old_id_table) => {
-                    let table = considering_tables.get(*old_id_table);
-                    let old_id_table: Identifier<Old, _> = (*old_id_table).into();
-                    let ty = table.element_ty;
-                    let export = Self::export_from(export, &considering_module, old_id_table, ty);
-                    self.table.add_export(export);
-                }
-                walrus::ExportItem::Memory(old_id_memory) => {
-                    let old_id_memory: Identifier<Old, _> = (*old_id_memory).into();
-                    let export = Self::export_from(export, &considering_module, old_id_memory, ());
-                    self.memory.add_export(export);
-                }
-                walrus::ExportItem::Global(old_id_global) => {
-                    let global = considering_globals.get(*old_id_global);
-                    let old_id_global: Identifier<Old, _> = (*old_id_global).into();
-                    let ty = global.ty;
-                    let export = Self::export_from(export, &considering_module, old_id_global, ty);
-                    self.global.add_export(export);
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub(crate) fn resolve(self, merge_options: &MergeOptions) -> Result<AllResolved, Error> {
