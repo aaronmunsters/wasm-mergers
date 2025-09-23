@@ -18,6 +18,9 @@ repos:
 
   - repo: local
     hooks:
+
+      # Clippy:
+
       - id: cargo-clippy-strict
         name: Cargo Clippy (clippy::pedantic)
         entry: bash -c "cargo clippy --all-targets --all-features -- -W clippy::pedantic"
@@ -30,8 +33,16 @@ repos:
         language: system
         types: [rust]
 
+      # Test:
+
       - id: cargo-nextest
         name: Cargo Nextest
         entry: bash -c "cargo nextest run"
+        language: system
+        types: [rust]
+
+      - id: cargo-nextest
+        name: Cargo Nextest Release
+        entry: bash -c "cargo nextest run --release"
         language: system
         types: [rust]
