@@ -35,7 +35,7 @@ repos:
 
       - id: cargo-clippy-cargo
         name: Cargo Clippy for Cargo (clippy::cargo)
-        entry: bash -c "cargo clippy --all-targets --all-features -- -D clippy::cargo -A clippy::cargo_common_metadata" # FIXME: once public, remove the `-A`
+        entry: bash -c "cargo clippy --all-targets --all-features -- -D clippy::cargo"
         language: system
         types: [rust]
 
