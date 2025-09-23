@@ -23,13 +23,13 @@ repos:
 
       - id: cargo-clippy-strict
         name: Cargo Clippy (clippy::pedantic)
-        entry: bash -c "cargo clippy --all-targets --all-features -- -W clippy::pedantic"
+        entry: bash -c "cargo clippy --all-targets --all-features -- -D clippy::pedantic"
         language: system
         types: [rust]
 
       - id: cargo-clippy-strict-release
         name: Cargo Clippy Release (clippy::pedantic)
-        entry: bash -c "cargo clippy --release --all-targets --all-features -- -W clippy::pedantic"
+        entry: bash -c "cargo clippy --release --all-targets --all-features -- -D clippy::pedantic"
         language: system
         types: [rust]
 

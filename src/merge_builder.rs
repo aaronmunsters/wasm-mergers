@@ -219,9 +219,10 @@ impl Resolver {
                     };
                     self.function.add_local(local);
                 }
-                walrus::FunctionKind::Import(_i) => {
+                walrus::FunctionKind::Import(i) => {
+                    let _ = &i;
                     #[cfg(debug_assertions)]
-                    debug_assert!(covered_function_imports.contains(&(&function.id(), _i.import)));
+                    debug_assert!(covered_function_imports.contains(&(&function.id(), i.import)));
                 }
                 walrus::FunctionKind::Uninitialized(_) => {
                     return Err(Error::Parse(anyhow!(
@@ -240,18 +241,20 @@ impl Resolver {
                         Self::local_from(&considering_module, global.id().into(), global.ty, ());
                     self.global.add_local(local);
                 }
-                walrus::GlobalKind::Import(_i) => {
+                walrus::GlobalKind::Import(i) => {
+                    let _ = &i;
                     #[cfg(debug_assertions)]
-                    debug_assert!(covered_global_imports.contains(&(&global.id(), *_i)));
+                    debug_assert!(covered_global_imports.contains(&(&global.id(), *i)));
                 }
             }
         }
 
         // Process memories
         for memory in considering_memories.iter() {
-            if let Some(_i) = &memory.import {
+            if let Some(i) = &memory.import {
+                let _ = &i;
                 #[cfg(debug_assertions)]
-                debug_assert!(covered_memory_imports.contains(&(&memory.id(), *_i)));
+                debug_assert!(covered_memory_imports.contains(&(&memory.id(), *i)));
             } else {
                 let local = Self::local_from(&considering_module, memory.id().into(), (), ());
                 self.memory.add_local(local);
@@ -260,9 +263,10 @@ impl Resolver {
 
         // Process tables
         for table in considering_tables.iter() {
-            if let Some(_i) = &table.import {
+            if let Some(i) = &table.import {
+                let _ = &i;
                 #[cfg(debug_assertions)]
-                debug_assert!(covered_table_imports.contains(&(&table.id(), *_i)));
+                debug_assert!(covered_table_imports.contains(&(&table.id(), *i)));
             } else {
                 let local =
                     Self::local_from(&considering_module, table.id().into(), table.element_ty, ());
