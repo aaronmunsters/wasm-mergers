@@ -89,7 +89,8 @@ where
 
         // Step 2: For each node, find what it reduces to via forward traversal
         for (node_idx, node_weight) in self.graph.node_references() {
-            let source = self.find_reduction_source(node_idx, &sources);
+            let source = self.find_reduction_source(node_idx, &sources).unwrap();
+            let source = self.graph.node_weight(source).unwrap().clone();
             reduction_map.insert(node_weight.clone(), source);
         }
 
@@ -100,30 +101,39 @@ where
         }
     }
 
-    /// Find what a given node reduces to by following the dependency chain
+    /// Traverse graph to find the definition of `index`.
+    ///
+    /// This entails walking the path of neighbours until the defining node
+    /// is reached.
+    ///
+    /// In debug mode, assertions are turned on to ensure that
+    /// this traversal terminates.
+    /// It does so by asserting that there always is a next neighbour if we have
+    /// not found the defining node yet.
+    ///
+    /// This function is defined in tail call position.
+    /// Hoping rustc performs TCO.
     fn find_reduction_source(
         &self,
-        start_idx: NodeIndex,
+        index: NodeIndex,
         sources: &Set<NodeIndex>,
-    ) -> Node<Kind, Type, Index, ImportData, LocalData> {
-        let mut current = start_idx;
-
-        // Follow successors until we reach a source
-        loop {
-            // If this is a source, we found our answer
-            if sources.contains(&current) {
-                return self.graph.node_weight(current).unwrap().clone();
-            }
-
+    ) -> Option<NodeIndex> {
+        // If index itself is a source, return it
+        if sources.contains(&index) {
+            Some(index)
+        } else {
             // Find the next successor to follow
-            let mut successors = self.graph.neighbors_directed(current, Direction::Outgoing);
+            let mut successors = self.graph.neighbors_directed(index, Direction::Outgoing);
+            let successor = successors.next();
 
             #[cfg(debug_assertions)]
-            debug_assert_eq!(successors.clone().count(), 1);
-
-            if let Some(successor) = successors.next() {
-                current = successor;
+            {
+                debug_assert!(successor.is_some());
+                let tail = successors.next();
+                debug_assert!(tail.is_none());
             }
+
+            self.find_reduction_source(successor?, sources)
         }
     }
 }
