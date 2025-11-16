@@ -277,12 +277,11 @@ impl Resolver {
         }
     }
 
-    #[allow(clippy::needless_lifetimes)]
-    fn consider_tables<'a>(
+    fn consider_tables(
         &mut self,
         considering_module: &IdentifierModule,
-        module: &'a Module,
-        #[cfg(debug_assertions)] covered_imports_table: &mut Set<(&'a TableId, ImportId)>,
+        module: &Module,
+        #[cfg(debug_assertions)] covered_imports_table: &mut Set<(&TableId, ImportId)>,
     ) {
         for table in module.tables.iter() {
             if let Some(i) = &table.import {
