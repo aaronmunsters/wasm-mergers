@@ -349,10 +349,10 @@ where
                 Node::Export(export) => {
                     let export_node_index = node_index;
                     #[cfg(debug_assertions)] // assert module exists
-                    self.ref_map.contains_key(&export.module);
+                    debug_assert!(self.ref_map.contains_key(&export.module));
                     if let Some(module) = self.ref_map.get(&export.module) {
                         #[cfg(debug_assertions)] // assert item exists
-                        module.indices.contains_key(&export.index);
+                        debug_assert!(module.indices.contains_key(&export.index));
                         if let Some(GraphIndexImportOrLocal(local_node_index)) =
                             module.indices.get(&export.index)
                         {
