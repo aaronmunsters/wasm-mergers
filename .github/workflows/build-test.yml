@@ -1,0 +1,34 @@
+name: Rust - Cargo Build, Test & Clippy
+
+on:
+  push:
+    branches: "*"
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-Dwarnings"
+  RUSTDOCFLAGS: "-Dwarnings"
+
+jobs:
+  pre-commit:
+    name: Pre-commit Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14'
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          components: "rustfmt, clippy"
+          toolchain: stable
+      - uses: cargo-bins/cargo-binstall@main
+      - run: |
+            cargo binstall --no-confirm cargo-nextest
+      - name: Run pre-commit on all files
+        run: |
+          pip install pre-commit
+          pre-commit --version
+          pre-commit run --all-files --show-diff-on-failure
