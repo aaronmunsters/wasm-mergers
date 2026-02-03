@@ -3,9 +3,10 @@ use std::iter::once;
 use itertools::Itertools;
 use wasmtime::*;
 use wat::parse_str;
-use webassembly_mergers::merge_options::DEFAULT_RENAMER;
-use webassembly_mergers::merge_options::{ClashingExports, KeepExports, MergeOptions};
-use webassembly_mergers::{MergeConfiguration, NamedModule};
+
+use wasm_mergers::merge_options::DEFAULT_RENAMER;
+use wasm_mergers::merge_options::{ClashingExports, KeepExports, MergeOptions};
+use wasm_mergers::{MergeConfiguration, NamedModule};
 
 mod smithed_tests;
 mod wasmtime_macros; // Bring macros in scope
@@ -166,7 +167,7 @@ fn test_earmark() -> Result<(), Error> {
     const NEEDLE: &[u8] = "webassembly-mergers".as_bytes();
     const NEEDLE_LEN: usize = NEEDLE.len();
     const M: &str = "(module)";
-    webassembly_mergers::MergeConfiguration::new(
+    wasm_mergers::MergeConfiguration::new(
         &[
             &NamedModule::new("A", &wat::parse_str(M)?),
             &NamedModule::new("B", &wat::parse_str(M)?),
@@ -383,10 +384,7 @@ fn illegal_loop() -> Result<(), Error> {
         .merge()
         .expect_err("Expect infinite cycle loop");
 
-    assert!(matches!(
-        error,
-        webassembly_mergers::error::Error::ImportCycle
-    ));
+    assert!(matches!(error, wasm_mergers::error::Error::ImportCycle));
 
     Ok(())
 }
@@ -454,7 +452,7 @@ fn merge_pass_through_module() -> Result<(), Error> {
 /// - Module A defines the recursive function `a(n)`
 /// - Module B re-exports `a` as `b`, completing a cycle so that `a` calls into `b`, which points back to `a`
 ///
-/// This verifies that `webassembly_mergers` can correctly resolve circular imports.
+/// This verifies that `wasm_mergers` can correctly resolve circular imports.
 #[test]
 fn merge_cross_module_fibonacci() -> Result<(), Error> {
     const WAT_MODULE_A: &str = r#"
@@ -745,8 +743,8 @@ fn test_multi_memory() -> Result<(), Error> {
 #[test]
 fn kind_mismatch_expect() -> Result<(), Error> {
     use walrus::{ExportItem, Module};
-    use webassembly_mergers::error::Error;
-    use webassembly_mergers::merge_options::ResolvedExports;
+    use wasm_mergers::error::Error;
+    use wasm_mergers::merge_options::ResolvedExports;
 
     let mod_a = parse_str(r#"(module (func   $x (export "x")))"#)?;
     let mod_b = parse_str(r#"(module (global $x (export "x") i32 (i32.const 0)))"#)?;

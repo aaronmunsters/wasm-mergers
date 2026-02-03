@@ -1,12 +1,12 @@
-use rand_chacha::rand_core::{Rng, SeedableRng};
-use wasmtime::*;
-use webassembly_mergers::NamedModule;
-use webassembly_mergers::merge_options::DEFAULT_RENAMER;
-use webassembly_mergers::merge_options::{ClashingExports, MergeOptions};
+use wasm_mergers::NamedModule;
+use wasm_mergers::merge_options::DEFAULT_RENAMER;
+use wasm_mergers::merge_options::{ClashingExports, MergeOptions};
 
 use arbitrary::Unstructured;
+use rand_chacha::rand_core::{Rng, SeedableRng};
 use rayon::prelude::*;
 use wasm_smith::{Config as WasmSmithConfig, Module as WasmSmithModule};
+use wasmtime::*;
 
 struct PreMergeOutcome {
     args: Vec<wasmtime::Val>,
@@ -124,11 +124,11 @@ fn test_smithed_modules() {
                 ..Default::default()
             };
             let mut merge_configuration =
-                webassembly_mergers::MergeConfiguration::new(modules, merge_options);
+                wasm_mergers::MergeConfiguration::new(modules, merge_options);
             let merged = merge_configuration.merge();
 
             // Failing to parse is something related to the crates `wasm-smith` <~> `walrus`
-            if let Err(webassembly_mergers::error::Error::Parse(_)) = merged {
+            if let Err(wasm_mergers::error::Error::Parse(_)) = merged {
                 return;
             }
 
