@@ -10,7 +10,7 @@ use petgraph::visit::{EdgeRef, IntoNodeReferences};
 use walrus::{RefType, ValType};
 
 use crate::kinds::{CrossModuleMismatch, FuncType, IdentifierItem, IdentifierModule, Locals};
-use crate::kinds::{Function, Global, Memory, Table};
+use crate::kinds::{Function, Global, Memory, Table, Tag};
 
 pub(crate) mod dependency_reduction;
 
@@ -103,8 +103,8 @@ pub(crate) mod instantiated {
     use super::{Debug, Hash};
     use super::{Export, Import, Local};
     use super::{FuncType, Locals, RefType, ValType};
-    use super::{Function, Global, Memory, Table};
-    
+    use super::{Function, Global, Memory, Table, Tag};
+
     /* Instantiated Kinds, Types & Locals */
 
     /* -- Kinds -- */
@@ -112,12 +112,14 @@ pub(crate) mod instantiated {
     pub(crate) type KindTable    = Table;
     pub(crate) type KindMemory   = Memory;
     pub(crate) type KindGlobal   = Global;
+    pub(crate) type KindTag      = Tag;
 
     /* -- Types -- */
     pub(crate) type TypeFunction = FuncType;
     pub(crate) type TypeTable    = RefType;
     pub(crate) type TypeMemory   = ();
     pub(crate) type TypeGlobal   = ValType;
+    pub(crate) type TypeTag      = FuncType;
 
     #[derive(Debug, Clone, PartialEq, Eq, Hash)]
     pub(crate) struct ImportDataFunction;
@@ -134,11 +136,15 @@ pub(crate) mod instantiated {
         pub(crate) shared: bool,
     }
 
+    #[derive(Debug, Clone, PartialEq, Eq, Hash)]
+    pub(crate) struct ImportDataTag;
+
     /* -- Locals -- */
     pub(crate) type LocalDataFunction = Locals;
     pub(crate) type LocalDataTable    = ();
     pub(crate) type LocalDataMemory   = ();
     pub(crate) type LocalDataGlobal   = ();
+    pub(crate) type LocalDataTag      = ();
 
     /* Instantiated Imports, Locals & Exports */
 
@@ -147,6 +153,7 @@ pub(crate) mod instantiated {
     // pub(crate) type ImportTable<Id>    = Import<KindTable,    TypeTable,    Id, ImportDataTable   >;
     // pub(crate) type ImportMemory<Id>   = Import<KindMemory,   TypeMemory,   Id, ImportDataMemory  >;
     pub(crate) type ImportGlobal<Id>   = Import<KindGlobal,   TypeGlobal,   Id, ImportDataGlobal  >;
+    // pub(crate) type ImportTag<Id>      = Import<KindTag,      TypeTag,      Id, ImportDataTag     >;
 
     /* -- Locals -- */
     pub(crate) type LocalFunction<Id> = Local<KindFunction, TypeFunction, Id, LocalDataFunction>;

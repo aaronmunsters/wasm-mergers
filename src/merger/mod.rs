@@ -3,6 +3,7 @@ use core::convert::From;
 use std::marker::PhantomData;
 
 use anyhow::anyhow;
+use walrus::ConstOp;
 use walrus::IdsToIndices;
 use walrus::Module;
 use walrus::ValType;
@@ -203,6 +204,7 @@ impl Merger {
             ref customs,
             ref debug,
             ref name,
+            ref tags,
             ..
         } = considering_module;
 
@@ -214,9 +216,9 @@ impl Merger {
         }
 
         for global in globals.iter() {
-            let new_global_id = match global.kind {
+            let new_global_id = match &global.kind {
                 GlobalKind::Import(id) => {
-                    let import = imports.get(id);
+                    let import = imports.get(*id);
                     let (new_global_id, new_import_id) = self.merged.add_import_global(
                         &import.module,
                         &import.name,
@@ -276,17 +278,18 @@ impl Merger {
 
         for data in data.iter() {
             let old_data_id: Identifier<Old, _> = data.id().into();
-            let kind = match data.kind {
+            let kind = match &data.kind {
                 DataKind::Active { memory, offset } => {
-                    let old_memory_id: Identifier<Old, _> = memory.into();
+                    let old_memory_id: Identifier<Old, _> = (*memory).into();
                     let new_memory_id: Identifier<New, _> = *self
                         .mapping
                         .memories
                         .get(&(considering_module_name.clone(), old_memory_id))
                         .unwrap();
+                    let new_offset = offset.copy_for(self, considering_module_name.clone());
                     DataKind::Active {
                         memory: *new_memory_id,
-                        offset,
+                        offset: new_offset,
                     }
                 }
                 DataKind::Passive => DataKind::Passive,
@@ -363,16 +366,16 @@ impl Merger {
                         .collect(),
                 ),
             };
-            let kind = match element.kind {
+            let kind = match &element.kind {
                 ElementKind::Passive => ElementKind::Passive,
                 ElementKind::Declared => ElementKind::Declared,
                 ElementKind::Active { table, offset } => {
                     // This code is copied from above ... move to function!
-                    let old_table_id: Identifier<Old, _> = table.into();
+                    let old_table_id: Identifier<Old, _> = (*table).into();
                     let new_table_id: Identifier<New, _> = *self
                         .mapping
                         .tables
-                        .get(&(considering_module_name.clone(), (old_table_id)))
+                        .get(&(considering_module_name.clone(), old_table_id))
                         .unwrap();
                     let offset = offset.copy_for(self, considering_module_name.clone());
                     ElementKind::Active {
@@ -406,6 +409,37 @@ impl Merger {
                     .unwrap();
                 table.elem_segments.insert(*new_element_id);
             }
+        }
+
+        for tag in tags.iter() {
+            let walrus::Tag { id, ty, kind, name } = tag;
+            let old_ty_id = considering_module.types.get(*ty);
+            let new_ty_id = self
+                .merged
+                .types
+                .add(old_ty_id.params(), old_ty_id.results());
+            let new_tag_id = match kind {
+                walrus::TagKind::Import(import_id) => {
+                    let import = imports.get(*import_id);
+                    let (new_table_id, new_import_id) = self.merged.add_import_tag(
+                        considering_module_name_str,
+                        &import.name,
+                        new_ty_id,
+                    );
+                    let _ = new_import_id;
+                    new_table_id
+                }
+                walrus::TagKind::Local => self.merged.tags.add(new_ty_id),
+            };
+
+            let tag = self.merged.tags.get_mut(new_tag_id);
+            tag.name.clone_from(name);
+
+            let old_tag_id: Identifier<Old, _> = (*id).into();
+            let new_tag_id: Identifier<New, _> = new_tag_id.into();
+            self.mapping
+                .tags
+                .insert((considering_module_name.clone(), old_tag_id), new_tag_id);
         }
 
         for import in imports.iter() {
@@ -452,7 +486,6 @@ impl Merger {
                         );
                     }
                 }
-                // What if the imported value is duplicate BUT different in shape (eg. element_ty) among multiple imports?
                 ImportKind::Table(id) => {
                     let table = tables.get(*id);
                     self.merged.add_import_table(
@@ -485,6 +518,11 @@ impl Merger {
                         global.mutable,
                         global.shared,
                     );
+                }
+                ImportKind::Tag(id) => {
+                    let tag = tags.get(*id);
+                    self.merged
+                        .add_import_tag(&import.module, &import.name, tag.ty);
                 }
             }
         }
@@ -528,7 +566,6 @@ impl Merger {
 
         for export in exports.iter() {
             match &export.item {
-                // FIXME: assert based on renamed injection, not old identifier
                 ExportItem::Function(before_id) => {
                     let ty = funcs.get(*before_id).ty();
                     let ty = FuncType::from_types(ty, types);
@@ -643,7 +680,6 @@ impl Merger {
                         // )));
                     }
                 }
-                // TODO: code dupe with other export forms
                 ExportItem::Global(before_index) => {
                     let old_id: Identifier<Old, _> = (*before_index).into();
                     let new_id: Identifier<New, _> = *self
@@ -673,6 +709,49 @@ impl Merger {
                         self.merged.exports.add(
                             old_export.identifier().identifier(),
                             ExportItem::Global(*new_id),
+                        );
+                    } else {
+                        // TODO: ... move insertion higher up and keep here only
+                        //           debug assertions
+                        // #[cfg(debug_assertions)]
+                        // debug_assert!(self.mapping.funcs.contains_key(&(
+                        //     considering_module_name.to_string().into(),
+                        //     (*before_id).into()
+                        // )));
+                    }
+                }
+                ExportItem::Tag(before_index) => {
+                    let old_id: Identifier<Old, _> = (*before_index).into();
+                    let new_id: Identifier<New, _> = *self
+                        .mapping
+                        .tags
+                        .get(&(considering_module_name.clone(), old_id))
+                        .unwrap();
+                    let new = self.merged.tags.get(*new_id);
+                    let ty = FuncType::from_types(new.ty, types);
+
+                    let mut old_export = Export {
+                        module: considering_module_name.clone(),
+                        identifier: export.name.clone().into(),
+                        index: old_id,
+                        kind: PhantomData,
+                        ty,
+                    };
+
+                    let remaining = self
+                        .all_resolved
+                        .all_reduced
+                        .tags
+                        .remaining_exports
+                        .contains(&old_export);
+
+                    if remaining {
+                        self.all_resolved
+                            .rename_map
+                            .compute_export_name(&mut old_export, RenameStrategy::tags);
+                        self.merged.exports.add(
+                            old_export.identifier().identifier(),
+                            ExportItem::Tag(*new_id),
                         );
                     } else {
                         // TODO: ... move insertion higher up and keep here only
@@ -753,7 +832,7 @@ trait CopyForMerger {
 }
 
 impl CopyForMerger for ConstExpr {
-    fn copy_for(&self, merger: &Merger, considering_module_name: IdentifierModule) -> Self {
+    fn copy_for(&self, merger: &Merger, considering_module: IdentifierModule) -> Self {
         match self {
             ConstExpr::Value(value) => ConstExpr::Value(*value),
             ConstExpr::RefNull(ref_type) => ConstExpr::RefNull(*ref_type),
@@ -762,7 +841,7 @@ impl CopyForMerger for ConstExpr {
                 let new_id: Identifier<New, _> = *merger
                     .mapping
                     .globals
-                    .get(&(considering_module_name, old_id))
+                    .get(&(considering_module, old_id))
                     .unwrap();
                 ConstExpr::Global(*new_id)
             }
@@ -771,10 +850,54 @@ impl CopyForMerger for ConstExpr {
                 let new_id: Identifier<New, _> = *merger
                     .mapping
                     .funcs
-                    .get(&(considering_module_name, old_id))
+                    .get(&(considering_module, old_id))
                     .unwrap();
                 ConstExpr::RefFunc(*new_id)
             }
+            ConstExpr::Extended(const_ops) => {
+                let copied_const_ops: Vec<ConstOp> = const_ops
+                    .iter()
+                    .map(|const_op| const_op.copy_for(merger, considering_module.clone()))
+                    .collect();
+                ConstExpr::Extended(copied_const_ops)
+            }
+        }
+    }
+}
+
+impl CopyForMerger for ConstOp {
+    fn copy_for(&self, merger: &Merger, considering_module: IdentifierModule) -> Self {
+        match self {
+            ConstOp::I32Const(v) => ConstOp::I32Const(*v),
+            ConstOp::I64Const(v) => ConstOp::I64Const(*v),
+            ConstOp::F32Const(v) => ConstOp::F32Const(*v),
+            ConstOp::F64Const(v) => ConstOp::F64Const(*v),
+            ConstOp::V128Const(v) => ConstOp::V128Const(*v),
+            ConstOp::GlobalGet(id) => {
+                let old_id: Identifier<Old, _> = (*id).into();
+                let new_id: Identifier<New, _> = *merger
+                    .mapping
+                    .globals
+                    .get(&(considering_module, old_id))
+                    .unwrap();
+                ConstOp::GlobalGet(*new_id)
+            }
+            ConstOp::RefNull(ref_type) => ConstOp::RefNull(*ref_type),
+            ConstOp::RefFunc(id) => {
+                let old_id: Identifier<Old, _> = (*id).into();
+                let new_id: Identifier<New, _> = *merger
+                    .mapping
+                    .funcs
+                    .get(&(considering_module, old_id))
+                    .unwrap();
+                ConstOp::RefFunc(*new_id)
+            }
+            ConstOp::I32Add => ConstOp::I32Add,
+            ConstOp::I32Sub => ConstOp::I32Sub,
+            ConstOp::I32Mul => ConstOp::I32Mul,
+            ConstOp::I64Add => ConstOp::I64Add,
+            ConstOp::I64Sub => ConstOp::I64Sub,
+            ConstOp::I64Mul => ConstOp::I64Mul,
         }
     }
 }

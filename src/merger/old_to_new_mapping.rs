@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId};
+use walrus::{DataId, ElementId, FunctionId, GlobalId, LocalId, MemoryId, TableId, TagId};
 
 use crate::kinds::IdentifierModule;
 use crate::merger::provenance_identifier::{Identifier, New, Old};
@@ -26,6 +26,9 @@ pub(crate) type NewIdFunction = Identifier<New, FunctionId>;
 pub(crate) type OldIdLocal = Identifier<Old, LocalId>;
 pub(crate) type NewIdLocal = Identifier<New, LocalId>;
 
+pub(crate) type OldIdTag = Identifier<Old, TagId>;
+pub(crate) type NewIdTag = Identifier<New, TagId>;
+
 #[derive(Default, Debug, Clone)]
 pub struct Mapping {
     pub tables: HashMap<(IdentifierModule, OldIdTable), NewIdTable>,
@@ -35,4 +38,5 @@ pub struct Mapping {
     pub elements: HashMap<(IdentifierModule, OldIdElement), NewIdElement>,
     pub funcs: HashMap<(IdentifierModule, OldIdFunction), NewIdFunction>,
     pub locals: HashMap<(IdentifierModule, OldIdLocal), NewIdLocal>,
+    pub tags: HashMap<(IdentifierModule, OldIdTag), NewIdTag>,
 }

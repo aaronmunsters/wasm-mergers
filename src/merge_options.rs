@@ -1,6 +1,6 @@
 use std::collections::HashSet as Set;
 
-use crate::kinds::{Function, Global, Memory, Table};
+use crate::kinds::{Function, Global, Memory, Table, Tag};
 use crate::kinds::{IdentifierItem, IdentifierModule};
 
 #[derive(Debug, Default, PartialEq, Eq, Hash, Clone)]
@@ -20,6 +20,7 @@ pub type IdentifierFunction = IdentifierItem<Function>;
 pub type IdentifierTable = IdentifierItem<Table>;
 pub type IdentifierMemory = IdentifierItem<Memory>;
 pub type IdentifierGlobal = IdentifierItem<Global>;
+pub type IdentifierTag = IdentifierItem<Tag>;
 
 /// The rename strategy for exports.
 #[derive(Debug, Hash, Clone)]
@@ -29,6 +30,7 @@ pub struct RenameStrategy {
     pub tables: fn(&IdentifierModule, IdentifierTable) -> IdentifierTable,
     pub memories: fn(&IdentifierModule, IdentifierMemory) -> IdentifierMemory,
     pub globals: fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal,
+    pub tags: fn(&IdentifierModule, IdentifierTag) -> IdentifierTag,
 }
 
 impl RenameStrategy {
@@ -50,6 +52,11 @@ impl RenameStrategy {
     #[must_use]
     pub fn globals(&self) -> &fn(&IdentifierModule, IdentifierGlobal) -> IdentifierGlobal {
         &self.globals
+    }
+
+    #[must_use]
+    pub fn tags(&self) -> &fn(&IdentifierModule, IdentifierTag) -> IdentifierTag {
+        &self.tags
     }
 }
 
@@ -73,6 +80,7 @@ pub struct KeepExports {
     pub tables: Set<ExportIdentifier<IdentifierTable>>,
     pub memories: Set<ExportIdentifier<IdentifierMemory>>,
     pub globals: Set<ExportIdentifier<IdentifierGlobal>>,
+    pub tags: Set<ExportIdentifier<IdentifierTag>>,
 }
 
 impl KeepExports {
@@ -94,6 +102,11 @@ impl KeepExports {
     #[must_use]
     pub fn globals(&self) -> &Set<ExportIdentifier<IdentifierGlobal>> {
         &self.globals
+    }
+
+    #[must_use]
+    pub fn tags(&self) -> &Set<ExportIdentifier<IdentifierTag>> {
+        &self.tags
     }
 
     pub fn keep_function(&mut self, module: IdentifierModule, name: String) {
@@ -138,6 +151,7 @@ pub const DEFAULT_RENAMER: RenameStrategy = RenameStrategy {
     tables: default_rename,
     memories: default_rename,
     globals: default_rename,
+    tags: default_rename,
 };
 
 /// Default rename strategy provided by this library is to rename duplicate

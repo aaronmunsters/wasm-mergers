@@ -6,17 +6,20 @@ use walrus::InstrSeqBuilder;
 use walrus::LocalFunction;
 use walrus::Module;
 use walrus::TypeId;
+use walrus::ir::LegacyCatch;
+use walrus::ir::TryTableCatch;
 use walrus::ir::{
-    AtomicFence, AtomicNotify, AtomicRmw, AtomicWait, Binop, Block, Br, BrIf, BrTable, Call,
-    CallIndirect, Cmpxchg, Const, DataDrop, Drop, ElemDrop, GlobalGet, GlobalSet, I8x16Shuffle,
-    I8x16Swizzle, IfElse, Instr, InstrLocId, InstrSeqId, InstrSeqType, Load, LoadSimd, LocalGet,
-    LocalSet, LocalTee, Loop, MemoryCopy, MemoryFill, MemoryGrow, MemoryInit, MemorySize, RefFunc,
-    RefIsNull, RefNull, Return, ReturnCall, ReturnCallIndirect, Select, Store, TableCopy,
-    TableFill, TableGet, TableGrow, TableInit, TableSet, TableSize, TernOp, Unop, Unreachable,
-    V128Bitselect, Visitor,
+    AtomicFence, AtomicNotify, AtomicRmw, AtomicWait, Binop, Block, Br, BrIf, BrOnNonNull,
+    BrOnNull, BrTable, Call, CallIndirect, CallRef, Cmpxchg, Const, DataDrop, Drop, ElemDrop,
+    GlobalGet, GlobalSet, I8x16Shuffle, I8x16Swizzle, IfElse, Instr, InstrLocId, InstrSeqId,
+    InstrSeqType, Load, LoadSimd, LocalGet, LocalSet, LocalTee, Loop, MemoryCopy, MemoryFill,
+    MemoryGrow, MemoryInit, MemorySize, RefAsNonNull, RefFunc, RefIsNull, RefNull, Rethrow, Return,
+    ReturnCall, ReturnCallIndirect, ReturnCallRef, Select, Store, TableCopy, TableFill, TableGet,
+    TableGrow, TableInit, TableSet, TableSize, TernOp, Throw, ThrowRef, Try, TryTable, Unop,
+    Unreachable, V128Bitselect, Visitor,
 };
 
-use crate::kinds::{FuncType, IdentifierModule};
+use crate::kinds::IdentifierModule;
 use crate::merger::old_to_new_mapping::Mapping;
 use crate::merger::old_to_new_mapping::NewIdFunction;
 use crate::merger::old_to_new_mapping::NewIdLocal;
@@ -265,6 +268,16 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             Instr::TableCopy(table_copy) => table_copy.copy_over(self),
             Instr::ReturnCall(return_call) => return_call.copy_over(self),
             Instr::ReturnCallIndirect(return_call_indirect) => return_call_indirect.copy_over(self),
+            Instr::RefAsNonNull(ref_as_non_null) => ref_as_non_null.copy_over(self),
+            Instr::BrOnNull(br_on_null) => br_on_null.copy_over(self),
+            Instr::BrOnNonNull(br_on_non_null) => br_on_non_null.copy_over(self),
+            Instr::CallRef(call_ref) => call_ref.copy_over(self),
+            Instr::ReturnCallRef(return_call_ref) => return_call_ref.copy_over(self),
+            Instr::TryTable(try_table) => try_table.copy_over(self),
+            Instr::Throw(throw) => throw.copy_over(self),
+            Instr::ThrowRef(throw_ref) => throw_ref.copy_over(self),
+            Instr::Try(try_) => try_.copy_over(self),
+            Instr::Rethrow(rethrow) => rethrow.copy_over(self),
         }
     }
 }
@@ -327,16 +340,13 @@ impl CopyOver for &Call {
 
 impl CopyOver for &CallIndirect {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
-        let owned_type = FuncType::from_types(self.ty, &target.old_module.types);
-        let new_type = target
-            .new_module
-            .types
-            .add(owned_type.params(), owned_type.results());
-        let old_table_id: Identifier<Old, _> = self.table.into();
+        let CallIndirect { ty, table } = self;
+        let new_ty = target.old_to_new_type_id(*ty);
+        let old_table_id: Identifier<Old, _> = (*table).into();
         let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
         target
             .current_sequence()
-            .call_indirect(new_type, *new_table_id);
+            .call_indirect(new_ty, *new_table_id);
     }
 }
 
@@ -757,12 +767,148 @@ impl CopyOver for &ReturnCallIndirect {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let old_table_id: Identifier<Old, _> = self.table.into();
         let new_table_id: Identifier<New, _> = target.map_id(old_table_id, &target.mapping.tables);
-        let owned_type = FuncType::from_types(self.ty, &target.old_module.types);
-        let new_type = target
-            .new_module
-            .types
-            .add(owned_type.params(), owned_type.results());
+        let new_type = target.old_to_new_type_id(self.ty);
         let mut current_sequence = target.current_sequence();
         current_sequence.return_call_indirect(new_type, *new_table_id);
+    }
+}
+
+impl CopyOver for &RefAsNonNull {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let RefAsNonNull {} = self;
+        target.current_sequence().ref_as_non_null();
+    }
+}
+
+impl CopyOver for &BrOnNull {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let BrOnNull { block } = self;
+        let new_block = target.sequence_stack.resolve(block);
+        target.current_sequence().br_on_null(new_block);
+    }
+}
+
+impl CopyOver for &BrOnNonNull {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let BrOnNonNull { block } = self;
+        let new_block = target.sequence_stack.resolve(block);
+        target.current_sequence().br_on_non_null(new_block);
+    }
+}
+
+impl CopyOver for &CallRef {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let CallRef { ty } = self;
+        let new_ty = target.old_to_new_type_id(*ty);
+        target.current_sequence().call_ref(new_ty);
+    }
+}
+
+impl CopyOver for &ReturnCallRef {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let ReturnCallRef { ty } = self;
+        let new_ty = target.old_to_new_type_id(*ty);
+        target.current_sequence().return_call_ref(new_ty);
+    }
+}
+
+impl CopyOver for &TryTable {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let TryTable { seq, catches } = self;
+        let new_seq = target.sequence_stack.resolve(seq);
+        let new_catches = catches
+            .iter()
+            .map(|try_table_catch| match try_table_catch {
+                TryTableCatch::Catch { tag, label } => {
+                    let old_tag_id: Identifier<Old, _> = (*tag).into();
+                    let new_tag_id: Identifier<New, _> =
+                        target.map_id(old_tag_id, &target.mapping.tags);
+                    let new_label = target.sequence_stack.resolve(label);
+                    TryTableCatch::Catch {
+                        tag: *new_tag_id,
+                        label: new_label,
+                    }
+                }
+                TryTableCatch::CatchRef { tag, label } => {
+                    let old_tag_id: Identifier<Old, _> = (*tag).into();
+                    let new_tag_id: Identifier<New, _> =
+                        target.map_id(old_tag_id, &target.mapping.tags);
+                    let new_label = target.sequence_stack.resolve(label);
+                    TryTableCatch::CatchRef {
+                        tag: *new_tag_id,
+                        label: new_label,
+                    }
+                }
+                TryTableCatch::CatchAll { label } => {
+                    let new_label = target.sequence_stack.resolve(label);
+                    TryTableCatch::CatchAll { label: new_label }
+                }
+                TryTableCatch::CatchAllRef { label } => {
+                    let new_label = target.sequence_stack.resolve(label);
+                    TryTableCatch::CatchAllRef { label: new_label }
+                }
+            })
+            .collect();
+        let new_try_table = TryTable {
+            seq: new_seq,
+            catches: new_catches,
+        };
+        target.current_sequence().instr(new_try_table);
+    }
+}
+
+impl CopyOver for &Throw {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let Throw { tag } = self;
+        let old_tag_id: Identifier<Old, _> = (*tag).into();
+        let new_tag_id: Identifier<New, _> = target.map_id(old_tag_id, &target.mapping.tags);
+        target.current_sequence().throw(*new_tag_id);
+    }
+}
+
+impl CopyOver for &ThrowRef {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        target.current_sequence().throw_ref();
+    }
+}
+
+impl CopyOver for &Try {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let Try { seq, catches } = self;
+        let new_seq = target.sequence_stack.resolve(seq);
+        let new_catches = catches
+            .iter()
+            .map(|legacy_catch| match legacy_catch {
+                LegacyCatch::Catch { tag, handler } => {
+                    let old_tag_id: Identifier<Old, _> = (*tag).into();
+                    let new_tag_id: Identifier<New, _> =
+                        target.map_id(old_tag_id, &target.mapping.tags);
+                    let new_handler = target.sequence_stack.resolve(handler);
+                    LegacyCatch::Catch {
+                        tag: *new_tag_id,
+                        handler: new_handler,
+                    }
+                }
+                LegacyCatch::CatchAll { handler } => {
+                    let handler = target.sequence_stack.resolve(handler);
+                    LegacyCatch::CatchAll { handler }
+                }
+                LegacyCatch::Delegate { relative_depth } => LegacyCatch::Delegate {
+                    relative_depth: *relative_depth,
+                },
+            })
+            .collect();
+        let new_try = Try {
+            seq: new_seq,
+            catches: new_catches,
+        };
+        target.current_sequence().instr(new_try);
+    }
+}
+
+impl CopyOver for &Rethrow {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let Rethrow { relative_depth } = self;
+        target.current_sequence().rethrow(*relative_depth);
     }
 }

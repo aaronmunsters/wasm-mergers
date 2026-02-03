@@ -5,7 +5,7 @@ use std::marker::PhantomData;
 use anyhow::anyhow;
 use walrus::Module;
 #[cfg(debug_assertions)]
-use walrus::{FunctionId, GlobalId, ImportId, MemoryId, TableId};
+use walrus::{FunctionId, GlobalId, ImportId, MemoryId, TableId, TagId};
 
 use crate::MergeOptions;
 use crate::error::Error;
@@ -13,23 +13,25 @@ use crate::kinds::ClashesMap;
 use crate::kinds::{ConcreteExport, ExportKind, FuncType, IdentifierItem, IdentifierModule};
 use crate::merge_options::{ClashingExports, ExportIdentifier, KeepExports, LinkTypeMismatch};
 use crate::merge_options::{DEFAULT_RENAMER, RenameStrategy};
-use crate::merger::old_to_new_mapping::{OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable};
+use crate::merger::old_to_new_mapping::{
+    OldIdFunction, OldIdGlobal, OldIdMemory, OldIdTable, OldIdTag,
+};
 use crate::merger::provenance_identifier::{Identifier, Old};
 use crate::named_module::NamedParsedModule;
 use crate::resolver::dependency_reduction::ReducedDependencies;
 use crate::resolver::error::TypeMismatch;
 use crate::resolver::instantiated::{
-    ImportDataFunction, ImportDataGlobal, ImportDataMemory, ImportDataTable,
+    ImportDataFunction, ImportDataGlobal, ImportDataMemory, ImportDataTable, ImportDataTag,
 };
 use crate::resolver::{Export, Import, Local, Resolver as GraphResolver, instantiated};
 
 #[rustfmt::skip]
 pub(crate) mod builder_instantiated {
-    use crate::resolver::instantiated::{ImportDataFunction, ImportDataTable, ImportDataMemory, ImportDataGlobal};
-    use crate::resolver::instantiated::{ LocalDataFunction,  LocalDataTable,  LocalDataMemory,  LocalDataGlobal};
-    use crate::resolver::instantiated::{      TypeFunction,       TypeTable,       TypeMemory,       TypeGlobal};
-    use crate::resolver::instantiated::{      KindFunction,       KindTable,       KindMemory,       KindGlobal};
-    use crate::merger::old_to_new_mapping::{ OldIdFunction,      OldIdTable,      OldIdMemory,      OldIdGlobal};
+    use crate::resolver::instantiated::{ImportDataFunction, ImportDataTable, ImportDataMemory, ImportDataGlobal, ImportDataTag};
+    use crate::resolver::instantiated::{ LocalDataFunction,  LocalDataTable,  LocalDataMemory,  LocalDataGlobal,  LocalDataTag};
+    use crate::resolver::instantiated::{      TypeFunction,       TypeTable,       TypeMemory,       TypeGlobal,       TypeTag};
+    use crate::resolver::instantiated::{      KindFunction,       KindTable,       KindMemory,       KindGlobal,       KindTag};
+    use crate::merger::old_to_new_mapping::{ OldIdFunction,      OldIdTable,      OldIdMemory,      OldIdGlobal,      OldIdTag};
 
     use super::{GraphResolver, ReducedDependencies};
 
@@ -37,11 +39,13 @@ pub(crate) mod builder_instantiated {
     pub(crate) type ResolverTable =    GraphResolver<KindTable,    TypeTable,    OldIdTable,    ImportDataTable,    LocalDataTable    >;
     pub(crate) type ResolverMemory =   GraphResolver<KindMemory,   TypeMemory,   OldIdMemory,   ImportDataMemory,   LocalDataMemory   >;
     pub(crate) type ResolverGlobal =   GraphResolver<KindGlobal,   TypeGlobal,   OldIdGlobal,   ImportDataGlobal,   LocalDataGlobal   >;
+    pub(crate) type ResolverTag =      GraphResolver<KindTag,      TypeTag,      OldIdTag,      ImportDataTag,      LocalDataTag      >;
 
     pub(crate) type ReducedDependenciesFunction = ReducedDependencies<KindFunction, TypeFunction, OldIdFunction, ImportDataFunction, LocalDataFunction>;
     pub(crate) type ReducedDependenciesTable =    ReducedDependencies<KindTable,    TypeTable,    OldIdTable,    ImportDataTable,    LocalDataTable   >;
     pub(crate) type ReducedDependenciesMemory =   ReducedDependencies<KindMemory,   TypeMemory,   OldIdMemory,   ImportDataMemory,   LocalDataMemory  >;
     pub(crate) type ReducedDependenciesGlobal =   ReducedDependencies<KindGlobal,   TypeGlobal,   OldIdGlobal,   ImportDataGlobal,   LocalDataGlobal  >;
+    pub(crate) type ReducedDependenciesTag =      ReducedDependencies<KindTag,      TypeTag,      OldIdTag,      ImportDataTag,      LocalDataTag  >;
 }
 
 #[derive(Debug, Clone)]
@@ -50,6 +54,7 @@ pub(crate) struct Resolver {
     table: builder_instantiated::ResolverTable,
     memory: builder_instantiated::ResolverMemory,
     global: builder_instantiated::ResolverGlobal,
+    tag: builder_instantiated::ResolverTag,
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +63,7 @@ pub(crate) struct AllReducedDependencies {
     pub tables: builder_instantiated::ReducedDependenciesTable,
     pub memories: builder_instantiated::ReducedDependenciesMemory,
     pub globals: builder_instantiated::ReducedDependenciesGlobal,
+    pub tags: builder_instantiated::ReducedDependenciesTag,
 }
 
 type KeepRetriever<Kind> = fn(&KeepExports) -> &Set<ExportIdentifier<IdentifierItem<Kind>>>;
@@ -71,6 +77,7 @@ impl Resolver {
             table: GraphResolver::new(),
             global: GraphResolver::new(),
             memory: GraphResolver::new(),
+            tag: GraphResolver::new(),
         }
     }
 
@@ -84,7 +91,8 @@ impl Resolver {
             mut covered_imports_table,
             mut covered_imports_memory,
             mut covered_imports_global,
-        ) = (Set::new(), Set::new(), Set::new(), Set::new());
+            mut covered_imports_tag,
+        ) = (Set::new(), Set::new(), Set::new(), Set::new(), Set::new());
 
         self.consider_imports(
             &considering_module,
@@ -97,6 +105,8 @@ impl Resolver {
             &mut covered_imports_memory,
             #[cfg(debug_assertions)]
             &mut covered_imports_global,
+            #[cfg(debug_assertions)]
+            &mut covered_imports_tag,
         );
 
         self.consider_functions(
@@ -132,7 +142,11 @@ impl Resolver {
         Ok(())
     }
 
-    #[allow(clippy::needless_lifetimes)]
+    #[allow(
+        clippy::needless_lifetimes,
+        clippy::too_many_lines,
+        clippy::too_many_arguments
+    )]
     fn consider_imports<'a>(
         &mut self,
         considering_module: &IdentifierModule,
@@ -141,6 +155,7 @@ impl Resolver {
         #[cfg(debug_assertions)] covered_imports_table: &mut Set<(&'a TableId, ImportId)>,
         #[cfg(debug_assertions)] covered_imports_memory: &mut Set<(&'a MemoryId, ImportId)>,
         #[cfg(debug_assertions)] covered_imports_global: &mut Set<(&'a GlobalId, ImportId)>,
+        #[cfg(debug_assertions)] covered_imports_tag: &mut Set<(&'a TagId, ImportId)>,
     ) {
         for import in module.imports.iter() {
             match &import.kind {
@@ -184,6 +199,17 @@ impl Resolver {
                     };
                     let import = Self::import_from(import, considering_module, old_id, ty, data);
                     self.global.add_import(import);
+                }
+                walrus::ImportKind::Tag(old_id_tag) => {
+                    #[cfg(debug_assertions)]
+                    covered_imports_tag.insert((old_id_tag, import.id()));
+                    let ty = module.tags.get(*old_id_tag).ty;
+                    let old_id: OldIdTag = (*old_id_tag).into();
+                    let data = ImportDataTag;
+                    let func_ty = FuncType::from_types(ty, &module.types);
+                    let import =
+                        Self::import_from(import, considering_module, old_id, func_ty, data);
+                    self.tag.add_import(import);
                 }
             }
         }
@@ -325,6 +351,13 @@ impl Resolver {
                     let export = Self::export_from(export, considering_module, old_id_global, ty);
                     self.global.add_export(export);
                 }
+                walrus::ExportItem::Tag(old_id_tag) => {
+                    let tag = module.tags.get(*old_id_tag);
+                    let old_id_tag: Identifier<Old, _> = (*old_id_tag).into();
+                    let ty = FuncType::from_types(tag.ty, &module.types);
+                    let export = Self::export_from(export, considering_module, old_id_tag, ty);
+                    self.tag.add_export(export);
+                }
             }
         }
     }
@@ -383,6 +416,7 @@ impl Resolver {
             tables: Self::resolve_kind(self.table, merge_options, KeepExports::tables)?,
             memories: Self::resolve_kind(self.memory, merge_options, KeepExports::memories)?,
             globals: Self::resolve_kind(self.global, merge_options, KeepExports::globals)?,
+            tags: Self::resolve_kind(self.tag, merge_options, KeepExports::tags)?,
         };
 
         let clashes_result = Self::identify_clashes(&all_reduced);

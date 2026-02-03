@@ -70,6 +70,8 @@ pub struct Table;
 pub struct Memory;
 #[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
 pub struct Global;
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Default)]
+pub struct Tag;
 
 // Identifiers
 #[derive(Debug, Clone, Hash, PartialEq, Eq, From, Into)]
