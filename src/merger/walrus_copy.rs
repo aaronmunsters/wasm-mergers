@@ -9,14 +9,15 @@ use walrus::TypeId;
 use walrus::ir::LegacyCatch;
 use walrus::ir::TryTableCatch;
 use walrus::ir::{
-    AtomicFence, AtomicNotify, AtomicRmw, AtomicWait, Binop, Block, Br, BrIf, BrOnNonNull,
-    BrOnNull, BrTable, Call, CallIndirect, CallRef, Cmpxchg, Const, DataDrop, Drop, ElemDrop,
-    GlobalGet, GlobalSet, I8x16Shuffle, I8x16Swizzle, IfElse, Instr, InstrLocId, InstrSeqId,
-    InstrSeqType, Load, LoadSimd, LocalGet, LocalSet, LocalTee, Loop, MemoryCopy, MemoryFill,
-    MemoryGrow, MemoryInit, MemorySize, RefAsNonNull, RefFunc, RefIsNull, RefNull, Rethrow, Return,
-    ReturnCall, ReturnCallIndirect, ReturnCallRef, Select, Store, TableCopy, TableFill, TableGet,
-    TableGrow, TableInit, TableSet, TableSize, TernOp, Throw, ThrowRef, Try, TryTable, Unop,
-    Unreachable, V128Bitselect, Visitor,
+    AnyConvertExtern, AtomicFence, AtomicNotify, AtomicRmw, AtomicWait, Binop, Block, Br, BrIf,
+    BrOnCast, BrOnCastFail, BrOnNonNull, BrOnNull, BrTable, Call, CallIndirect, CallRef, Cmpxchg,
+    Const, DataDrop, Drop, ElemDrop, ExternConvertAny, GlobalGet, GlobalSet, I8x16Shuffle,
+    I8x16Swizzle, I31GetS, I31GetU, IfElse, Instr, InstrLocId, InstrSeqId, InstrSeqType, Load,
+    LoadSimd, LocalGet, LocalSet, LocalTee, Loop, MemoryCopy, MemoryFill, MemoryGrow, MemoryInit,
+    MemorySize, RefAsNonNull, RefCast, RefFunc, RefI31, RefIsNull, RefNull, RefTest, Rethrow,
+    Return, ReturnCall, ReturnCallIndirect, ReturnCallRef, Select, Store, TableCopy, TableFill,
+    TableGet, TableGrow, TableInit, TableSet, TableSize, TernOp, Throw, ThrowRef, Try, TryTable,
+    Unop, Unreachable, V128Bitselect, Visitor,
 };
 
 use crate::kinds::IdentifierModule;
@@ -278,6 +279,15 @@ impl<'old_module, 'new_module> WasmFunctionCopy<'old_module, 'new_module> {
             Instr::ThrowRef(throw_ref) => throw_ref.copy_over(self),
             Instr::Try(try_) => try_.copy_over(self),
             Instr::Rethrow(rethrow) => rethrow.copy_over(self),
+            Instr::RefI31(ref_i31) => ref_i31.copy_over(self),
+            Instr::I31GetS(i31_get_s) => i31_get_s.copy_over(self),
+            Instr::I31GetU(i31_get_u) => i31_get_u.copy_over(self),
+            Instr::RefTest(ref_test) => ref_test.copy_over(self),
+            Instr::RefCast(ref_cast) => ref_cast.copy_over(self),
+            Instr::BrOnCast(br_on_cast) => br_on_cast.copy_over(self),
+            Instr::BrOnCastFail(br_on_cast_fail) => br_on_cast_fail.copy_over(self),
+            Instr::AnyConvertExtern(any_convert_extern) => any_convert_extern.copy_over(self),
+            Instr::ExternConvertAny(extern_convert_any) => extern_convert_any.copy_over(self),
         }
     }
 }
@@ -910,5 +920,100 @@ impl CopyOver for &Rethrow {
     fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
         let Rethrow { relative_depth } = self;
         target.current_sequence().rethrow(*relative_depth);
+    }
+}
+
+impl CopyOver for &RefI31 {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let RefI31 {} = self;
+        target.current_sequence().ref_i31();
+    }
+}
+
+impl CopyOver for &I31GetS {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let I31GetS {} = self;
+        target.current_sequence().i31_get_s();
+    }
+}
+
+impl CopyOver for &I31GetU {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let I31GetU {} = self;
+        target.current_sequence().i31_get_u();
+    }
+}
+
+impl CopyOver for &RefTest {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let RefTest {
+            nullable,
+            heap_type,
+        } = self;
+        target.current_sequence().ref_test(*nullable, *heap_type);
+    }
+}
+
+impl CopyOver for &RefCast {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let RefCast {
+            nullable,
+            heap_type,
+        } = self;
+        target.current_sequence().ref_cast(*nullable, *heap_type);
+    }
+}
+
+impl CopyOver for &BrOnCast {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let BrOnCast {
+            block,
+            from_nullable,
+            from_heap_type,
+            to_nullable,
+            to_heap_type,
+        } = self;
+        let new_block = target.sequence_stack.resolve(block);
+        target.current_sequence().br_on_cast(
+            new_block,
+            *from_nullable,
+            *from_heap_type,
+            *to_nullable,
+            *to_heap_type,
+        );
+    }
+}
+
+impl CopyOver for &BrOnCastFail {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let BrOnCastFail {
+            block,
+            from_nullable,
+            from_heap_type,
+            to_nullable,
+            to_heap_type,
+        } = self;
+        let new_block = target.sequence_stack.resolve(block);
+        target.current_sequence().br_on_cast_fail(
+            new_block,
+            *from_nullable,
+            *from_heap_type,
+            *to_nullable,
+            *to_heap_type,
+        );
+    }
+}
+
+impl CopyOver for &AnyConvertExtern {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let AnyConvertExtern {} = self;
+        target.current_sequence().any_convert_extern();
+    }
+}
+
+impl CopyOver for &ExternConvertAny {
+    fn copy_over(&self, target: &mut WasmFunctionCopy<'_, '_>) {
+        let ExternConvertAny {} = self;
+        target.current_sequence().extern_convert_any();
     }
 }

@@ -34,7 +34,7 @@ fn test_config() -> WasmSmithConfig {
         min_element_segments: 1,
         min_tables: 1,
         bulk_memory_enabled: true,
-        threads_enabled: false, // FIXME: bug that this does not work with atomics?
+        threads_enabled: true,
         simd_enabled: true,
         shared_everything_threads_enabled: true,
         ..Default::default()
@@ -54,9 +54,10 @@ fn get_expected_outcomes() -> Vec<ExpectedModuleOutcomes> {
             let module_bytes = module.to_bytes();
 
             // Instantiate merged module (should be self-contained)
-            let mut store = Store::<()>::default();
-            let engine = store.engine();
-            let module = Module::from_binary(engine, &module_bytes).unwrap();
+            let config = Config::new();
+            let engine = Engine::new(&config).unwrap();
+            let mut store = Store::<()>::new(&engine, ());
+            let module = Module::from_binary(&engine, &module_bytes).unwrap();
             let Ok(instance) = Instance::new(&mut store, &module, &[]) else {
                 // It could still be that instantiation fails from the WasmSmith generated module
                 return None;
@@ -136,9 +137,10 @@ fn test_smithed_modules() {
             let merged = merged.unwrap();
 
             // Instantiate merged module (should be self-contained)
-            let mut store = Store::<()>::default();
-            let engine = store.engine();
-            let module = Module::from_binary(engine, &merged).unwrap();
+            let config = Config::new();
+            let engine = Engine::new(&config).unwrap();
+            let mut store = Store::<()>::new(&engine, ());
+            let module = Module::from_binary(&engine, &merged).unwrap();
             let instance = Instance::new(&mut store, &module, &[]).unwrap();
 
             for asserted_module in window {

@@ -14,7 +14,7 @@ Similar to a linker or a bundler for JavaScript modules.
 [dependencies]
 anyhow = { version = "1.0" }
 thiserror = { version = "2.0" }
-walrus = { version = "0.24" }
+walrus = { version = "0.25" }
 derive_more = { version = "2", features = ["from", "into", "display"] }
 petgraph = { version = "0.8" }
 

@@ -898,6 +898,7 @@ impl CopyForMerger for ConstOp {
             ConstOp::I64Add => ConstOp::I64Add,
             ConstOp::I64Sub => ConstOp::I64Sub,
             ConstOp::I64Mul => ConstOp::I64Mul,
+            ConstOp::RefI31 => ConstOp::RefI31,
         }
     }
 }
